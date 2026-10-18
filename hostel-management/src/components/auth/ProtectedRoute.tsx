@@ -1,5 +1,5 @@
 import { Navigate, useLocation } from 'react-router-dom';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../context';
 import { LoadingSpinner } from '../ui';
 import type { UserRole } from '../../types';
 
@@ -25,8 +25,12 @@ export default function ProtectedRoute({ allowedRole, children }: ProtectedRoute
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
+  if (!role) {
+    return <Navigate to="/login" replace />;
+  }
+
   // If a specific role is required and user does not have that role, redirect to their role's dashboard
-  if (allowedRole && role && role !== allowedRole) {
+  if (allowedRole && role !== allowedRole) {
     const roleHomeMap: Record<UserRole, string> = {
       student: '/student',
       warden: '/warden',

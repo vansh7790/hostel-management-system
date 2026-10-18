@@ -45,13 +45,15 @@ export interface Room {
 // Student
 export interface Student {
   id: string;
-  user_id: string;
+  user_id: string | null;
   student_id: string;
   name: string;
   email: string;
   phone?: string;
   department?: string;
   year?: number;
+  intended_hostel_id?: string | null;
+  intended_hostel?: Hostel;
   hostel_id?: string;
   hostel?: Hostel;
   room_id?: string;

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Outlet } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import Header from './Header';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../context';
 import type { UserRole } from '../../types';
 
 interface DashboardLayoutProps {

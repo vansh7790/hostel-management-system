@@ -1,11 +1,12 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { AuthProvider } from './context/AuthContext';
+import { AuthProvider } from './context';
 import ProtectedRoute from './components/auth/ProtectedRoute';
 import { DashboardLayout } from './components/layout';
 
 // Pages
 import Landing from './pages/Landing';
 import Login from './pages/Login';
+import Register from './pages/Register';
 
 // Student Pages
 import StudentDashboard from './pages/student/Dashboard';
@@ -43,6 +44,7 @@ export default function App() {
           {/* Public Routes */}
           <Route path="/" element={<Landing />} />
           <Route path="/login" element={<Login />} />
+          <Route path="/register" element={<Register />} />
 
           {/* Student Protected Routes */}
           <Route

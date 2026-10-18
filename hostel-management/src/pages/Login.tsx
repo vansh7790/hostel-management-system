@@ -1,9 +1,9 @@
 import { useState } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { GraduationCap, Shield, Users, ArrowRight, AlertCircle } from 'lucide-react';
 import { AuthLayout } from '../components/layout';
 import { Button, Input } from '../components/ui';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../context';
 
 interface DemoRole {
   role: 'student' | 'warden' | 'admin';
@@ -16,7 +16,7 @@ interface DemoRole {
 export default function Login() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { signIn, loading: authLoading } = useAuth();
+  const { signIn, loading: authLoading, isConfigured } = useAuth();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -117,10 +117,26 @@ export default function Login() {
           <p className="text-sm text-gray-500 mt-1">
             Access your hostel dashboard and services
           </p>
+          <p className="text-xs text-gray-500 mt-2">
+            Sign in with your assigned account. Your database-assigned role determines which portal opens.
+          </p>
+          <div className="mt-2.5">
+            {isConfigured ? (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                Live Supabase Connected
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-amber-50 text-amber-700 border border-amber-200" title="Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to .env to connect live backend">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                Offline Demo Mode (Local Storage)
+              </span>
+            )}
+          </div>
         </div>
 
-        {/* Demo Role Quick Cards */}
-        <div className="mb-6 bg-gray-50/80 p-3.5 rounded-xl border border-gray-200/80">
+        {/* Demo Role Quick Cards are available only in explicit offline mode. */}
+        {!isConfigured && <div className="mb-6 bg-gray-50/80 p-3.5 rounded-xl border border-gray-200/80">
           <div className="flex items-center justify-between mb-2.5">
             <span className="text-xs font-semibold uppercase tracking-wider text-gray-500">
               Quick Demo Access
@@ -157,7 +173,7 @@ export default function Login() {
               );
             })}
           </div>
-        </div>
+        </div>}
 
         <div className="relative mb-6">
           <div className="absolute inset-0 flex items-center">
@@ -216,9 +232,17 @@ export default function Login() {
         </form>
 
         <div className="mt-6 pt-5 border-t border-gray-100 text-center">
-          <p className="text-xs text-gray-400">
-            For college demonstration purposes. Click any demo role card above for instant access.
+          <p className="text-xs text-gray-500">
+            New here?{' '}
+            <Link to="/register" className="font-medium text-primary-600 hover:text-primary-700">
+              Create a student account
+            </Link>
           </p>
+          {!isConfigured && (
+            <p className="text-xs text-gray-400 mt-2">
+              Offline demo mode is active because Supabase is not configured.
+            </p>
+          )}
         </div>
       </div>
     </AuthLayout>

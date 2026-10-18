@@ -1,7 +1,7 @@
 import { Menu, Bell, LogOut, User, ChevronDown } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../context';
 import type { UserRole } from '../../types';
 
 interface HeaderProps {
