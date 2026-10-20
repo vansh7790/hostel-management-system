@@ -1,48 +1,21 @@
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import type { Hostel } from '../types';
 
-export const mockHostels: Hostel[] = [
-  {
-    id: 'hostel-1',
-    name: 'Hostel Mandakini',
-    type: 'boys',
-    total_rooms: 64,
-    address: 'North Campus, Sector 2',
-    created_at: '2026-08-01T00:00:00Z',
-  },
-  {
-    id: 'hostel-2',
-    name: 'Hostel Alakananda',
-    type: 'boys',
-    total_rooms: 60,
-    address: 'North Campus, Sector 3',
-    created_at: '2026-08-01T00:00:00Z',
-  },
-  {
-    id: 'hostel-3',
-    name: 'Hostel Kaveri',
-    type: 'girls',
-    total_rooms: 68,
-    address: 'South Campus, Block A',
-    created_at: '2026-08-01T00:00:00Z',
-  },
-  {
-    id: 'hostel-4',
-    name: 'Hostel Yamuna',
-    type: 'girls',
-    total_rooms: 60,
-    address: 'South Campus, Block B',
-    created_at: '2026-08-01T00:00:00Z',
-  },
-];
+export interface HostelDirectoryEntry extends Hostel {
+  room_count: number | null;
+  capacity: number | null;
+  resident_count: number | null;
+}
+
+export interface HostelWarden {
+  id: string;
+  full_name: string;
+}
+
+const configurationError = 'Supabase is not configured. Hostel records are unavailable until a database connection is configured.';
 
 export async function getHostels(filters?: { wardenId?: string }): Promise<{ data: Hostel[] | null; error: string | null }> {
-  if (!isSupabaseConfigured) {
-    const hostels = filters?.wardenId
-      ? mockHostels.filter((hostel) => hostel.warden_id === filters.wardenId)
-      : mockHostels;
-    return { data: hostels, error: null };
-  }
+  if (!isSupabaseConfigured) return { data: null, error: configurationError };
 
   try {
     let query = supabase.from('hostels').select('*');
@@ -58,10 +31,7 @@ export async function getHostels(filters?: { wardenId?: string }): Promise<{ dat
 }
 
 export async function getHostelById(id: string): Promise<{ data: Hostel | null; error: string | null }> {
-  if (!isSupabaseConfigured) {
-    const found = mockHostels.find((h) => h.id === id) || null;
-    return { data: found, error: found ? null : 'Hostel not found' };
-  }
+  if (!isSupabaseConfigured) return { data: null, error: configurationError };
 
   try {
     const { data, error } = await supabase
@@ -79,17 +49,9 @@ export async function getHostelById(id: string): Promise<{ data: Hostel | null; 
 }
 
 export async function createHostel(
-  payload: Omit<Hostel, 'id' | 'created_at'>
+  payload: Pick<Hostel, 'name' | 'type'> & Partial<Pick<Hostel, 'warden_id' | 'address'>>
 ): Promise<{ data: Hostel | null; error: string | null }> {
-  if (!isSupabaseConfigured) {
-    const newHostel: Hostel = {
-      ...payload,
-      id: `hostel-${Date.now()}`,
-      created_at: new Date().toISOString(),
-    };
-    mockHostels.push(newHostel);
-    return { data: newHostel, error: null };
-  }
+  if (!isSupabaseConfigured) return { data: null, error: configurationError };
 
   try {
     const { data, error } = await supabase
@@ -103,5 +65,77 @@ export async function createHostel(
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Failed to create hostel';
     return { data: null, error: message };
+  }
+}
+
+export async function getHostelWardens(): Promise<{ data: HostelWarden[] | null; error: string | null }> {
+  if (!isSupabaseConfigured) return { data: null, error: configurationError };
+
+  try {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('id, full_name')
+      .eq('role', 'warden')
+      .order('full_name');
+
+    if (error) return { data: null, error: error.message };
+    return { data: data as HostelWarden[], error: null };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Failed to fetch warden profiles';
+    return { data: null, error: message };
+  }
+}
+
+export async function getHostelDirectory(): Promise<{
+  data: HostelDirectoryEntry[] | null;
+  error: string | null;
+  metricsError: string | null;
+}> {
+  if (!isSupabaseConfigured) return { data: null, error: configurationError, metricsError: null };
+
+  try {
+    const [hostelsResult, roomsResult, studentsResult] = await Promise.all([
+      supabase.from('hostels').select('*').order('name'),
+      supabase.from('rooms').select('id, hostel_id, capacity'),
+      supabase.from('students').select('room_id').not('room_id', 'is', null),
+    ]);
+
+    if (hostelsResult.error) return { data: null, error: hostelsResult.error.message, metricsError: null };
+
+    const rooms = (roomsResult.data || []) as Array<{ id: string; hostel_id: string; capacity: number }>;
+    const roomHostelById = new Map(rooms.map((room) => [room.id, room.hostel_id]));
+    const roomCounts = new Map<string, number>();
+    const capacities = new Map<string, number>();
+    const residentCounts = new Map<string, number>();
+
+    for (const room of rooms) {
+      roomCounts.set(room.hostel_id, (roomCounts.get(room.hostel_id) || 0) + 1);
+      capacities.set(room.hostel_id, (capacities.get(room.hostel_id) || 0) + room.capacity);
+    }
+
+    if (!roomsResult.error && !studentsResult.error) {
+      for (const student of (studentsResult.data || []) as Array<{ room_id: string | null }>) {
+        const hostelId = student.room_id ? roomHostelById.get(student.room_id) : undefined;
+        if (hostelId) residentCounts.set(hostelId, (residentCounts.get(hostelId) || 0) + 1);
+      }
+    }
+
+    const hostels = (hostelsResult.data || []) as Hostel[];
+    return {
+      data: hostels.map((hostel) => ({
+        ...hostel,
+        room_count: roomsResult.error ? null : roomCounts.get(hostel.id) || 0,
+        capacity: roomsResult.error ? null : capacities.get(hostel.id) || 0,
+        resident_count: roomsResult.error || studentsResult.error ? null : residentCounts.get(hostel.id) || 0,
+      })),
+      error: null,
+      metricsError: [
+        roomsResult.error && `Could not load room counts and capacity: ${roomsResult.error.message}`,
+        studentsResult.error && `Could not load allocated resident counts: ${studentsResult.error.message}`,
+      ].filter(Boolean).join(' ') || null,
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Failed to load hostel directory';
+    return { data: null, error: message, metricsError: null };
   }
 }

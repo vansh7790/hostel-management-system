@@ -35,6 +35,7 @@ export default function AdminStudents() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [linkWarning, setLinkWarning] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [isOpen, setIsOpen] = useState(false);
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
@@ -82,6 +83,7 @@ export default function AdminStudents() {
     setEditingStudent(null);
     setDraft(emptyDraft);
     setErrorMessage(null);
+    setLinkWarning(null);
     setSuccessMessage(null);
     setIsOpen(true);
   };
@@ -90,6 +92,7 @@ export default function AdminStudents() {
     setEditingStudent(student);
     setDraft(toDraft(student));
     setErrorMessage(null);
+    setLinkWarning(null);
     setSuccessMessage(null);
     setIsOpen(true);
   };
@@ -144,6 +147,7 @@ export default function AdminStudents() {
       setSuccessMessage(`Student ${editingStudent ? 'updated' : 'created'} successfully.`);
     }
     await loadStudents();
+    if (result.warning) setLinkWarning(result.warning);
   };
 
   const field = (label: string, key: keyof StudentDraft, options: { type?: string; required?: boolean; min?: string; max?: string } = {}) => (
@@ -161,7 +165,7 @@ export default function AdminStudents() {
 
   return (
     <div>
-      <PageHeader title="Students" description="Manage student records." action={
+      <PageHeader title="Students" description="Manage student records and their sign-in links." action={
         <Button leftIcon={<Plus className="h-4 w-4" />} onClick={openCreate} disabled={!isConfigured || hostelsLoading || Boolean(hostelsError) || hostels.length === 0}>Add Student</Button>
       } />
       {!isConfigured && <p role="status" className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">Supabase is not configured. The student data below is demo-only; connect Supabase to create or edit persistent records.</p>}
@@ -169,6 +173,8 @@ export default function AdminStudents() {
       {hostelsError && <p role="alert" className="mb-4 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{hostelsError}</p>}
       {!hostelsLoading && !hostelsError && hostels.length === 0 && isConfigured && <p role="status" className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">No hostels are available. Add a hostel before creating a student record.</p>}
       {successMessage && <p role="status" className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">{successMessage}</p>}
+      {linkWarning && <p role="status" className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">{linkWarning}</p>}
+      {isConfigured && <p role="status" className="mb-4 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800">Student records are separate from login accounts. Students sign up with the record's email and student ID; the account links after email confirmation when one unambiguous matching record exists. Unmatched or ambiguous registrations need administrator review.</p>}
       <div className="mb-6">
         <Input placeholder="Search by name, student ID, or email..." leftIcon={<Search className="h-4 w-4" />}
           value={search} onChange={(event) => { setErrorMessage(null); setSearch(event.target.value); setLoading(true); }} />
@@ -185,12 +191,12 @@ export default function AdminStudents() {
                 <div className="w-10 h-10 shrink-0 rounded-full bg-gray-100 flex items-center justify-center"><User className="h-5 w-5 text-gray-500" /></div>
                 <div className="flex-1 min-w-0">
                   <p className="font-medium text-gray-900">{student.name}</p>
-                  <div className="mt-1"><Badge variant={student.room_id ? 'success' : 'warning'} dot>{student.room_id ? 'Room allocated' : 'Pending allocation'}</Badge></div>
+                  <div className="mt-1 flex flex-wrap gap-1.5"><Badge variant={student.room_id ? 'success' : 'warning'} dot>{student.room_id ? 'Room allocated' : 'Pending allocation'}</Badge><Badge variant={student.user_id ? 'success' : 'warning'} dot>{student.user_id ? 'Sign-in linked' : 'No sign-in linked'}</Badge></div>
                   <p className="text-sm text-gray-500">{student.student_id} · {student.department || 'Department not set'}{student.year ? ` · Year ${student.year}` : ''}</p>
                   <p className="text-sm text-gray-500 truncate">{student.email}</p>
                 </div>
                 <div className="hidden text-right sm:block">
-                  <p className="text-sm font-medium text-gray-900">{student.intended_hostel?.name || student.hostel?.name || 'No hostel assigned'}</p>
+                  <p className="text-sm font-medium text-gray-900">{student.intended_hostel?.name || student.actual_hostel?.name || 'No hostel assigned'}</p>
                   <p className="text-sm text-gray-500">{student.room?.room_number ? `Room ${student.room.room_number}` : 'No room assigned'}</p>
                 </div>
                 <Button variant="outline" size="sm" leftIcon={<Pencil className="h-4 w-4" />} onClick={() => openEdit(student)} disabled={!isConfigured}>Edit</Button>
@@ -203,7 +209,7 @@ export default function AdminStudents() {
       <Modal isOpen={isOpen} onClose={() => !saving && setIsOpen(false)} title={editingStudent ? 'Edit Student' : 'Add Student'} size="lg"
         footer={<><Button variant="outline" onClick={() => setIsOpen(false)} disabled={saving}>Cancel</Button><Button type="submit" form="student-form" isLoading={saving}>{editingStudent ? 'Save Changes' : 'Create Student'}</Button></>}>
         <form id="student-form" onSubmit={handleSubmit} className="space-y-4">
-          <p className="text-sm text-gray-500">This form manages the student record only. Choose the intended hostel to route an unallocated student to its assigned warden. Room allocation remains a separate action; this does not create a login account.</p>
+          <p className="text-sm text-gray-500">This form creates or updates the student record; it does not create login credentials. After this record exists, the student can sign up with the same email and student ID and confirm the email to link the account. Room allocation remains a separate action.</p>
           <div className="grid sm:grid-cols-2 gap-4">
             {field('Student ID', 'student_id', { required: true })}
             {field('Full name', 'name', { required: true })}

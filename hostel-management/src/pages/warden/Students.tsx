@@ -1,18 +1,28 @@
 import { useEffect, useState } from 'react';
-import { Search, User } from 'lucide-react';
+import { Search, User, BedDouble } from 'lucide-react';
 import { PageHeader } from '../../components/layout';
-import { Badge, Button, Card, Input } from '../../components/ui';
+import { Badge, Button, Card, Input, Modal, Select } from '../../components/ui';
 import { useAuth } from '../../context';
-import { getHostels, getStudents } from '../../services';
-import type { Student } from '../../types';
+import { assignRoom, getHostels, getRooms, getStudents } from '../../services';
+import type { Room, Student } from '../../types';
 
 export default function WardenStudents() {
   const { isConfigured, user } = useAuth();
   const [students, setStudents] = useState<Student[]>([]);
   const [pendingOnly, setPendingOnly] = useState(false);
+  const [assignedHostelIds, setAssignedHostelIds] = useState<string[]>([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [allocatingStudent, setAllocatingStudent] = useState<Student | null>(null);
+  const [availableRooms, setAvailableRooms] = useState<Room[]>([]);
+  const [selectedRoomId, setSelectedRoomId] = useState('');
+  const [roomsLoading, setRoomsLoading] = useState(false);
+  const [roomLoadError, setRoomLoadError] = useState<string | null>(null);
+  const [allocationError, setAllocationError] = useState<string | null>(null);
+  const [allocationSuccess, setAllocationSuccess] = useState<string | null>(null);
+  const [allocationSaving, setAllocationSaving] = useState(false);
 
   const showStudentsResult = (result: Awaited<ReturnType<typeof getStudents>>) => {
     if (result.error) {
@@ -38,6 +48,7 @@ export default function WardenStudents() {
         return;
       }
       const assignedHostelIds = (hostelResult.data || []).map((hostel) => hostel.id);
+      if (active) setAssignedHostelIds(assignedHostelIds);
       if (assignedHostelIds.length === 0) {
         if (active) showStudentsResult({ data: [], error: null, source: isConfigured ? 'supabase' : 'demo' });
         return;
@@ -60,7 +71,60 @@ export default function WardenStudents() {
     };
     void load();
     return () => { active = false; };
-  }, [search, user, isConfigured]);
+  }, [search, user, isConfigured, refreshKey]);
+
+  const openAllocation = async (student: Student) => {
+    const intendedHostelId = student.intended_hostel_id;
+    if (!intendedHostelId || !assignedHostelIds.includes(intendedHostelId)) {
+      setErrorMessage('This student does not have an intended hostel assigned to your account.');
+      return;
+    }
+
+    setAllocatingStudent(student);
+    setAvailableRooms([]);
+    setSelectedRoomId('');
+    setRoomLoadError(null);
+    setAllocationError(null);
+    setRoomsLoading(true);
+    const result = await getRooms(intendedHostelId);
+    setRoomsLoading(false);
+
+    if (result.error) {
+      setRoomLoadError(`Could not load rooms for this hostel: ${result.error}`);
+      return;
+    }
+
+    const eligibleRooms = (result.data || []).filter((room) =>
+      room.hostel_id === intendedHostelId &&
+      assignedHostelIds.includes(room.hostel_id) &&
+      room.status === 'available' &&
+      room.current_occupants < room.capacity
+    );
+    setAvailableRooms(eligibleRooms);
+  };
+
+  const handleAllocate = async () => {
+    if (!allocatingStudent || !selectedRoomId || allocationSaving) return;
+    const selectedRoom = availableRooms.find((room) => room.id === selectedRoomId);
+    if (!selectedRoom || selectedRoom.hostel_id !== allocatingStudent.intended_hostel_id) {
+      setAllocationError('Choose an available room in the student’s intended hostel.');
+      return;
+    }
+
+    setAllocationSaving(true);
+    setAllocationError(null);
+    const result = await assignRoom(allocatingStudent.id, selectedRoom.id, selectedRoom.hostel_id);
+    setAllocationSaving(false);
+
+    if (result.error || !result.data || result.source !== 'supabase' || result.data.room_id !== selectedRoom.id) {
+      setAllocationError(result.error || 'The database did not confirm the selected room assignment. No success was reported.');
+      return;
+    }
+
+    setAllocationSuccess(`${allocatingStudent.name} was allocated to room ${selectedRoom.room_number}.`);
+    setAllocatingStudent(null);
+    setRefreshKey((current) => current + 1);
+  };
 
   const visibleStudents = pendingOnly ? students.filter((student) => !student.room_id) : students;
 
@@ -69,6 +133,7 @@ export default function WardenStudents() {
       <PageHeader title="Students" description="View students visible to your account." />
       {!isConfigured && <p role="status" className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">Supabase is not configured. The student data below is demo-only and is not filtered by database permissions.</p>}
       {errorMessage && <p role="alert" className="mb-4 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{errorMessage}</p>}
+      {allocationSuccess && <p role="status" className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">{allocationSuccess}</p>}
       <div className="mb-6">
         <Input placeholder="Search by name, student ID, or email..." leftIcon={<Search className="h-4 w-4" />}
           value={search} onChange={(event) => { setErrorMessage(null); setSearch(event.target.value); setLoading(true); }} />
@@ -94,14 +159,47 @@ export default function WardenStudents() {
                   <p className="text-sm text-gray-500 truncate">{student.email}</p>
                 </div>
                 <div className="text-right">
-                  <p className="text-sm font-medium text-gray-900">{student.intended_hostel?.name || student.hostel?.name || 'No hostel assigned'}</p>
+                  <p className="text-sm font-medium text-gray-900">{student.intended_hostel?.name || student.actual_hostel?.name || 'No hostel assigned'}</p>
                   <p className="text-sm text-gray-500">{student.room?.room_number ? `Room ${student.room.room_number}` : 'No room assigned'}</p>
                 </div>
+                {!student.room_id && <Button size="sm" leftIcon={<BedDouble className="h-4 w-4" />} onClick={() => void openAllocation(student)} disabled={!isConfigured || !student.intended_hostel_id}>Allocate Room</Button>}
               </div>
             </Card>
           ))}
         </div>
       )}
+
+      <Modal
+        isOpen={Boolean(allocatingStudent)}
+        onClose={() => { if (!allocationSaving) setAllocatingStudent(null); }}
+        title="Allocate Room"
+        footer={<>
+          <Button variant="outline" onClick={() => setAllocatingStudent(null)} disabled={allocationSaving}>Cancel</Button>
+          <Button onClick={() => void handleAllocate()} isLoading={allocationSaving} disabled={roomsLoading || Boolean(roomLoadError) || availableRooms.length === 0 || !selectedRoomId}>
+            Confirm Allocation
+          </Button>
+        </>}
+      >
+        {allocatingStudent && <div className="space-y-4">
+          <p className="text-sm text-gray-600">Choose an available room in {allocatingStudent.intended_hostel?.name || 'the student’s intended hostel'} for {allocatingStudent.name}.</p>
+          {roomsLoading ? <p role="status" className="text-sm text-gray-500">Loading available rooms...</p> : roomLoadError ? (
+            <p role="alert" className="text-sm text-rose-700">{roomLoadError}</p>
+          ) : availableRooms.length === 0 ? (
+            <p role="status" className="text-sm text-amber-700">No available rooms with remaining capacity were found in this hostel.</p>
+          ) : <Select
+            label="Available room"
+            value={selectedRoomId}
+            onChange={(event) => { setSelectedRoomId(event.target.value); setAllocationError(null); }}
+            options={availableRooms.map((room) => ({
+              value: room.id,
+              label: `Room ${room.room_number} · ${room.current_occupants}/${room.capacity} occupants`,
+            }))}
+            placeholder="Select a room"
+            disabled={allocationSaving}
+          />}
+          {allocationError && <p role="alert" className="text-sm text-rose-700">{allocationError}</p>}
+        </div>}
+      </Modal>
     </div>
   );
 }

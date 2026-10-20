@@ -11,7 +11,8 @@ export interface AuthContextType {
   signUp: (
     email: string,
     password: string,
-    fullName: string
+    fullName: string,
+    studentId: string
   ) => Promise<{ error: Error | null; needsEmailConfirmation: boolean; role?: UserRole }>;
   signOut: () => Promise<void>;
   isConfigured: boolean;

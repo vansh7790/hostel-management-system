@@ -9,6 +9,7 @@ export default function Register() {
   const navigate = useNavigate();
   const { signUp, loading: authLoading, isConfigured } = useAuth();
   const [fullName, setFullName] = useState('');
+  const [studentId, setStudentId] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -23,6 +24,7 @@ export default function Register() {
 
     const cleanName = fullName.trim();
     const cleanEmail = email.trim();
+    const cleanStudentId = studentId.trim();
 
     if (!isConfigured) {
       setErrorMessage('Registration requires the live Supabase connection.');
@@ -36,6 +38,10 @@ export default function Register() {
       setErrorMessage('Enter a valid email address.');
       return;
     }
+    if (!cleanStudentId) {
+      setErrorMessage('Enter the student ID from your student record.');
+      return;
+    }
     if (password.length < 8) {
       setErrorMessage('Password must be at least 8 characters long.');
       return;
@@ -46,7 +52,7 @@ export default function Register() {
     }
 
     setIsSubmitting(true);
-    const result = await signUp(cleanEmail, password, cleanName);
+    const result = await signUp(cleanEmail, password, cleanName, cleanStudentId);
     setIsSubmitting(false);
 
     if (result.error) {
@@ -55,7 +61,7 @@ export default function Register() {
     }
 
     if (result.needsEmailConfirmation) {
-      setSuccessMessage('Account created. Check your email to confirm your account, then sign in.');
+      setSuccessMessage('Account created. Confirm your email, then sign in. Your student ID and verified email must match the student record. If your record was not pre-created or the details do not match, contact the hostel administrator to complete registration.');
       return;
     }
 
@@ -110,6 +116,16 @@ export default function Register() {
             value={email}
             onChange={(event) => setEmail(event.target.value)}
             autoComplete="email"
+            required
+            disabled={isSubmitting || authLoading}
+          />
+          <Input
+            label="Student ID"
+            type="text"
+            value={studentId}
+            onChange={(event) => setStudentId(event.target.value)}
+            autoComplete="off"
+            helperText="Use the student ID shown on your student record."
             required
             disabled={isSubmitting || authLoading}
           />

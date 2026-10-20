@@ -1,12 +1,15 @@
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import type { Student } from '../types';
 
+const STUDENT_SELECT = '*, actual_hostel:hostels!students_hostel_id_fkey(*), room:rooms(*), intended_hostel:hostels!students_intended_hostel_id_fkey(*)';
+
 export type StudentDataSource = 'supabase' | 'demo';
 
 interface StudentResult<T> {
   data: T;
   error: string | null;
   source: StudentDataSource;
+  warning?: string | null;
 }
 
 type StudentCreatePayload = Pick<Student, 'student_id' | 'name' | 'email'> &
@@ -42,6 +45,21 @@ const demoResult = <T,>(data: T, error: string | null = null): StudentResult<T> 
 const liveResult = <T,>(data: T, error: string | null = null): StudentResult<T> => ({ data, error, source: 'supabase' });
 const errorMessage = (err: unknown, fallback: string) => err instanceof Error ? err.message : fallback;
 
+async function findStudentProfileId(email: string, studentName: string): Promise<{ id: string | null; warning: string | null }> {
+  try {
+    const { data, error } = await supabase.from('profiles').select('id, full_name')
+      .eq('role', 'student').eq('email', email.trim().toLowerCase()).maybeSingle();
+    if (error) return { id: null, warning: `Could not verify a matching student sign-in: ${error.message}` };
+    if (!data) return { id: null, warning: 'No matching student sign-in is visible. This record remains unlinked; after the student signs up with the matching email and student ID and confirms the email, the database will link it automatically.' };
+    if (studentName.trim().toLowerCase().replace(/\s+/g, ' ') !== data.full_name.trim().toLowerCase().replace(/\s+/g, ' ')) {
+      return { id: null, warning: 'The student record and sign-in names do not match. Verify the account and student record before linking them.' };
+    }
+    return { id: data.id, warning: null };
+  } catch (err) {
+    return { id: null, warning: `Could not verify a matching student sign-in: ${errorMessage(err, 'The profile lookup failed.')}` };
+  }
+}
+
 function filterDemoStudents(filters?: { hostelId?: string; hostelIds?: string[]; intendedHostelIds?: string[]; roomId?: string; search?: string }) {
   let list = [...mockStudents];
   if (filters?.hostelId) list = list.filter((student) => student.hostel_id === filters.hostelId);
@@ -66,7 +84,7 @@ export async function getStudents(filters?: {
   if (!isSupabaseConfigured) return demoResult(filterDemoStudents(filters));
 
   try {
-    let query = supabase.from('students').select('*, hostel:hostels(*), room:rooms(*), intended_hostel:hostels!students_intended_hostel_id_fkey(*)');
+    let query = supabase.from('students').select(STUDENT_SELECT);
     if (filters?.hostelId) query = query.eq('hostel_id', filters.hostelId);
     if (filters?.hostelIds) query = query.in('hostel_id', filters.hostelIds);
     if (filters?.intendedHostelIds) query = query.in('intended_hostel_id', filters.intendedHostelIds);
@@ -89,7 +107,7 @@ export async function getStudentById(id: string): Promise<StudentResult<Student 
 
   try {
     const { data, error } = await supabase.from('students')
-      .select('*, hostel:hostels(*), room:rooms(*), intended_hostel:hostels!students_intended_hostel_id_fkey(*)').eq('id', id).maybeSingle();
+      .select(STUDENT_SELECT).eq('id', id).maybeSingle();
     if (error) return liveResult(null, error.message);
     return liveResult(data as Student | null);
   } catch (err) {
@@ -104,7 +122,7 @@ export async function getStudentByUserId(userId: string): Promise<StudentResult<
 
   try {
     const { data, error } = await supabase.from('students')
-      .select('*, hostel:hostels(*), room:rooms(*), intended_hostel:hostels!students_intended_hostel_id_fkey(*)').eq('user_id', userId).maybeSingle();
+      .select(STUDENT_SELECT).eq('user_id', userId).maybeSingle();
     if (error) return liveResult(null, error.message);
     return liveResult(data as Student | null);
   } catch (err) {
@@ -123,10 +141,12 @@ export async function createStudent(payload: StudentCreatePayload): Promise<Stud
   }
 
   try {
-    const { data, error } = await supabase.from('students').insert([payload])
-      .select('*, hostel:hostels(*), room:rooms(*), intended_hostel:hostels!students_intended_hostel_id_fkey(*)').single();
+    const profile = await findStudentProfileId(payload.email, payload.name);
+    const insertPayload = profile.id ? { ...payload, user_id: profile.id } : payload;
+    const { data, error } = await supabase.from('students').insert([insertPayload])
+      .select(STUDENT_SELECT).single();
     if (error) return liveResult(null, error.message);
-    return liveResult(data as Student);
+    return { ...liveResult(data as Student), warning: profile.warning };
   } catch (err) {
     return liveResult(null, errorMessage(err, 'Failed to create student in Supabase.'));
   }
@@ -141,11 +161,24 @@ export async function updateStudent(id: string, payload: StudentUpdatePayload): 
   }
 
   try {
-    const { data, error } = await supabase.from('students').update(payload).eq('id', id)
-      .select('*, hostel:hostels(*), room:rooms(*), intended_hostel:hostels!students_intended_hostel_id_fkey(*)').maybeSingle();
+    const { data: currentStudent, error: lookupError } = await supabase.from('students')
+      .select('user_id, name').eq('id', id).maybeSingle();
+    if (lookupError) return liveResult(null, lookupError.message);
+    if (!currentStudent) return liveResult(null, 'Student record was not found or is not visible to this account.');
+
+    let updatePayload: StudentUpdatePayload & { user_id?: string } = payload;
+    let warning: string | null = null;
+    if (!currentStudent.user_id && payload.email) {
+      const profile = await findStudentProfileId(payload.email || '', payload.name || currentStudent.name);
+      warning = profile.warning;
+      if (profile.id) updatePayload = { ...payload, user_id: profile.id };
+    }
+
+    const { data, error } = await supabase.from('students').update(updatePayload).eq('id', id)
+      .select(STUDENT_SELECT).maybeSingle();
     if (error) return liveResult(null, error.message);
     if (!data) return liveResult(null, 'Student was not updated. It may be missing or the database denied access.');
-    return liveResult(data as Student);
+    return { ...liveResult(data as Student), warning };
   } catch (err) {
     return liveResult(null, errorMessage(err, 'Failed to update student in Supabase.'));
   }
@@ -168,7 +201,7 @@ export async function assignRoom(
   try {
     const updatePayload = { room_id: roomId, hostel_id: roomId ? hostelId || null : null };
     const { data, error } = await supabase.from('students').update(updatePayload).eq('id', studentId)
-      .select('*, hostel:hostels(*), room:rooms(*)').maybeSingle();
+      .select(STUDENT_SELECT).maybeSingle();
     if (error) return liveResult(null, error.message);
     if (!data) return liveResult(null, 'Student was not updated. It may be missing or the database denied access.');
     return liveResult(data as Student);

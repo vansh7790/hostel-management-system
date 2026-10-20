@@ -24,7 +24,7 @@ export interface Hostel {
   id: string;
   name: string;
   type: 'boys' | 'girls';
-  warden_id?: string;
+  warden_id?: string | null;
   total_rooms: number;
   address?: string;
   created_at: string;
@@ -53,9 +53,9 @@ export interface Student {
   department?: string;
   year?: number;
   intended_hostel_id?: string | null;
-  intended_hostel?: Hostel;
+  intended_hostel?: Hostel | null;
   hostel_id?: string;
-  hostel?: Hostel;
+  actual_hostel?: Hostel | null;
   room_id?: string;
   room?: Room;
   guardian_name?: string;

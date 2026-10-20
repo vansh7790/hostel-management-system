@@ -234,13 +234,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signUp = async (
     email: string,
     password: string,
-    fullName: string
+    fullName: string,
+    studentId: string
   ): Promise<{ error: Error | null; needsEmailConfirmation: boolean; role?: UserRole }> => {
     setLoading(true);
 
     try {
       const cleanEmail = email.trim().toLowerCase();
       const cleanFullName = fullName.trim();
+      const cleanStudentId = studentId.trim();
 
       if (!isSupabaseConfigured) {
         setLoading(false);
@@ -254,7 +256,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         email: cleanEmail,
         password,
         options: {
-          data: { full_name: cleanFullName },
+          data: { full_name: cleanFullName, student_id: cleanStudentId },
         },
       });
 
