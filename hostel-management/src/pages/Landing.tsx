@@ -134,13 +134,13 @@ export default function Landing() {
             </Button>
           </div>
 
-          {/* Stats */}
+          {/* Product facts (not usage statistics: those would need live data) */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-8 mt-20 max-w-3xl mx-auto">
             {[
-              { value: '500+', label: 'Students' },
-              { value: '6', label: 'Hostels' },
-              { value: '200+', label: 'Rooms' },
-              { value: '24/7', label: 'Support' },
+              { value: '3', label: 'Role-based portals' },
+              { value: 'Live', label: 'Room occupancy' },
+              { value: 'Verified', label: 'Student sign-up' },
+              { value: 'Online', label: 'Leave & complaints' },
             ].map((stat) => (
               <div key={stat.label}>
                 <p className="text-3xl font-bold text-gray-900">{stat.value}</p>
@@ -250,7 +250,7 @@ export default function Landing() {
                   </div>
                   <div>
                     <p className="font-semibold text-gray-900 text-sm">For Administrators</p>
-                    <p className="text-xs text-gray-500">Multi-hostel management, room allocation matrix, and fee records</p>
+                    <p className="text-xs text-gray-500">Multi-hostel management, room allocation, and student records</p>
                   </div>
                 </div>
               </div>

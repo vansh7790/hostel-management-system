@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Plus, Building2, RefreshCw } from 'lucide-react';
+import { Plus, Building2, RefreshCw, Pencil, Trash2 } from 'lucide-react';
 import { PageHeader } from '../../components/layout';
-import { Card, Badge, Button, Input, Modal, Select } from '../../components/ui';
+import { Card, Badge, Button, ConfirmDialog, Input, Modal, Select } from '../../components/ui';
 import { useAuth } from '../../context';
-import { createHostel, getHostelDirectory, getHostelWardens } from '../../services';
+import { createHostel, deleteHostel, getHostelDirectory, getHostelWardens, updateHostel } from '../../services';
 import type { HostelDirectoryEntry, HostelWarden } from '../../services/hostelsService';
 import type { Hostel } from '../../types';
 
@@ -30,6 +30,10 @@ export default function AdminHostels() {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [isOpen, setIsOpen] = useState(false);
   const [draft, setDraft] = useState<HostelDraft>(emptyDraft);
+  const [editingHostel, setEditingHostel] = useState<HostelDirectoryEntry | null>(null);
+  const [deletingHostel, setDeletingHostel] = useState<HostelDirectoryEntry | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const applyDirectoryResult = useCallback((result: Awaited<ReturnType<typeof getHostelDirectory>>) => {
     if (result.error) {
@@ -77,7 +81,33 @@ export default function AdminHostels() {
     return () => { active = false; };
   }, [applyWardensResult]);
 
+  const openEdit = (hostel: HostelDirectoryEntry) => {
+    setEditingHostel(hostel);
+    setDraft({ name: hostel.name, type: hostel.type, warden_id: hostel.warden_id || '', address: hostel.address || '' });
+    setFormError(null);
+    setSuccessMessage(null);
+    setActionError(null);
+    setIsOpen(true);
+  };
+
+  const handleDelete = async () => {
+    if (!deletingHostel) return;
+    setDeleting(true);
+    const result = await deleteHostel(deletingHostel.id);
+    setDeleting(false);
+    if (result.error) {
+      setActionError(`Could not delete ${deletingHostel.name}: ${result.error}`);
+      setDeletingHostel(null);
+      return;
+    }
+    setSuccessMessage(`${deletingHostel.name} was deleted.`);
+    setDeletingHostel(null);
+    await loadDirectory();
+  };
+
   const openCreate = () => {
+    setEditingHostel(null);
+    setActionError(null);
     setDraft(emptyDraft);
     setFormError(null);
     setSuccessMessage(null);
@@ -100,22 +130,24 @@ export default function AdminHostels() {
     }
 
     setSaving(true);
-    const result = await createHostel({
+    const payload = {
       name,
       type: draft.type,
       warden_id: draft.warden_id || null,
       address: draft.address.trim() || undefined,
-    });
+    };
+    const result = editingHostel ? await updateHostel(editingHostel.id, payload) : await createHostel(payload);
     setSaving(false);
 
     if (result.error || !result.data) {
-      setFormError(`Could not create hostel: ${result.error || 'No hostel record was returned.'}`);
+      setFormError(`Could not ${editingHostel ? 'update' : 'create'} hostel: ${result.error || 'No hostel record was returned.'}`);
       return;
     }
 
     setIsOpen(false);
     setDraft(emptyDraft);
-    setSuccessMessage('Hostel created successfully.');
+    setSuccessMessage(editingHostel ? 'Hostel updated successfully.' : 'Hostel created successfully.');
+    setEditingHostel(null);
     await loadDirectory();
   };
 
@@ -129,6 +161,7 @@ export default function AdminHostels() {
         action={<Button size="sm" leftIcon={<Plus className="h-4 w-4" />} onClick={openCreate} disabled={!isConfigured}>Add Hostel</Button>}
       />
       {!isConfigured && <p role="alert" className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">Supabase is not configured. Hostel records and changes require a database connection; no sample hostels are shown.</p>}
+      {actionError && <p role="alert" className="mb-4 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{actionError}</p>}
       {successMessage && <p role="status" className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">{successMessage}</p>}
       {directoryError && <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700" role="alert"><span>{directoryError}</span><Button variant="outline" size="sm" leftIcon={<RefreshCw className="h-4 w-4" />} onClick={() => void loadDirectory()}>Retry</Button></div>}
       {metricsError && <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800" role="alert"><span>{metricsError}</span><Button variant="outline" size="sm" leftIcon={<RefreshCw className="h-4 w-4" />} onClick={() => void loadDirectory()}>Retry statistics</Button></div>}
@@ -165,6 +198,12 @@ export default function AdminHostels() {
                       <div className="mb-1 flex justify-between text-[11px] text-gray-500"><span>Occupancy</span><span className="font-medium text-gray-700">{occupancy === null ? 'Unavailable' : `${occupancy}%`}</span></div>
                       <div className="h-1.5 w-full overflow-hidden rounded-full bg-gray-100"><div className="h-1.5 rounded-full bg-primary-600" style={{ width: `${Math.min(occupancy ?? 0, 100)}%` }} /></div>
                     </div>
+                    <div className="mt-3 flex gap-2">
+                      <Button size="sm" variant="outline" leftIcon={<Pencil className="h-4 w-4" />} onClick={() => openEdit(hostel)} disabled={!isConfigured}>Edit</Button>
+                      <Button size="sm" variant="outline" leftIcon={<Trash2 className="h-4 w-4" />} onClick={() => { setActionError(null); setSuccessMessage(null); setDeletingHostel(hostel); }}
+                        disabled={!isConfigured || (hostel.room_count ?? 1) > 0}
+                        title={(hostel.room_count ?? 1) > 0 ? 'Only hostels with no rooms or students can be deleted' : undefined}>Delete</Button>
+                    </div>
                   </div>
                 </div>
               </Card>
@@ -173,8 +212,8 @@ export default function AdminHostels() {
         </div>
       )}
 
-      <Modal isOpen={isOpen} onClose={() => !saving && setIsOpen(false)} title="Add Hostel" size="md"
-        footer={<><Button variant="outline" onClick={() => setIsOpen(false)} disabled={saving}>Cancel</Button><Button type="submit" form="hostel-form" isLoading={saving}>Create Hostel</Button></>}>
+      <Modal isOpen={isOpen} onClose={() => !saving && setIsOpen(false)} title={editingHostel ? 'Edit Hostel' : 'Add Hostel'} size="md"
+        footer={<><Button variant="outline" onClick={() => setIsOpen(false)} disabled={saving}>Cancel</Button><Button type="submit" form="hostel-form" isLoading={saving}>{editingHostel ? 'Save Changes' : 'Create Hostel'}</Button></>}>
         <form id="hostel-form" onSubmit={handleSubmit} className="space-y-4">
           <Input label="Hostel name" value={draft.name} onChange={(event) => setField('name', event.target.value)} required maxLength={120} disabled={saving} />
           <Select label="Hostel type" value={draft.type} onChange={(event) => { const type = event.target.value; if (type === 'boys' || type === 'girls') setField('type', type); }} options={[{ value: 'boys', label: 'Boys' }, { value: 'girls', label: 'Girls' }]} disabled={saving} />
@@ -184,6 +223,16 @@ export default function AdminHostels() {
           <p className="text-xs text-gray-500">Room totals and occupancy are calculated from room records and students with a room allocation. Creating a hostel does not create rooms or student records.</p>
         </form>
       </Modal>
+
+      <ConfirmDialog
+        isOpen={Boolean(deletingHostel)}
+        onClose={() => { if (!deleting) setDeletingHostel(null); }}
+        onConfirm={() => void handleDelete()}
+        title="Delete hostel"
+        message={`Delete ${deletingHostel?.name || 'this hostel'}? This also deletes its hostel-specific notices. Hostels that still have rooms or students cannot be deleted.`}
+        confirmLabel="Delete Hostel"
+        isLoading={deleting}
+      />
     </div>
   );
 }

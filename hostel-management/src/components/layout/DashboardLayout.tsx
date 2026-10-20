@@ -43,7 +43,8 @@ export default function DashboardLayout({
           userName={activeUserName}
           onMenuClick={() => setSidebarOpen(!sidebarOpen)}
         />
-        <main className="flex-1 overflow-y-auto">
+        {/* tabIndex -1: programmatic focus target when a dialog's trigger no longer exists. */}
+        <main className="flex-1 overflow-y-auto focus:outline-none" tabIndex={-1}>
           <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto">
             <Outlet />
           </div>

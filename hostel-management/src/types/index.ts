@@ -102,21 +102,6 @@ export interface LeaveRequest {
   updated_at: string;
 }
 
-// Fee
-export type FeeStatus = 'paid' | 'pending' | 'overdue';
-
-export interface Fee {
-  id: string;
-  student_id: string;
-  student?: Student;
-  semester: string;
-  amount: number;
-  due_date: string;
-  status: FeeStatus;
-  paid_date?: string;
-  created_at: string;
-}
-
 // Notice
 export type NoticePriority = 'low' | 'medium' | 'high';
 

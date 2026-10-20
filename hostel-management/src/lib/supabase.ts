@@ -10,6 +10,12 @@ export const isSupabaseConfigured = Boolean(
   !supabaseAnonKey.includes('placeholder')
 );
 
+// Public project identifier (already visible in network requests); shown in dev
+// builds so testers can see which Supabase project they are using.
+export const supabaseProjectRef = isSupabaseConfigured
+  ? supabaseUrl.match(/^https:\/\/([a-z0-9]+)\.supabase\.co/)?.[1] || null
+  : null;
+
 // Fallback dummy URL and key to prevent createClient throwing on initialization
 const validUrl = isSupabaseConfigured ? supabaseUrl : 'https://placeholder-project.supabase.co';
 const validKey = isSupabaseConfigured ? supabaseAnonKey : 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.placeholder';

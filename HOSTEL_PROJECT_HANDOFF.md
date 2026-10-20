@@ -1,13 +1,264 @@
 # Hostel Management System: Project Handoff
 
-**Audit date:** 2026-10-18
+**Last updated:** 2026-10-21 (read-only release-readiness audit)
 **Repository root:** `C:\Users\vvans\OneDrive\Desktop\SWE PROJECT`
 **Application directory:** [`hostel-management/`](hostel-management/)
 **Current branch:** `main`
-**HEAD:** `b4b15f6` (`Initial commit: Hostel Management System`)
-**Audit scope:** repository audit, local Supabase configuration, and review-only SQL proposal. No live database, application source, dependency, or Git history was changed.
+**HEAD:** `0d274b2` (`Finished major functionalities`), level with `origin/main`. All 2026-10-20/21 work is **uncommitted** (see "Repository state").
 
-> The original audit below is historical. The latest live state is recorded separately and is based on the project owner's browser and Supabase verification; it was not independently queried by the assistant during this handoff update.
+> Read "Release-readiness status — 2026-10-21" first. Older sections are historical; where they conflict, the newest dated section wins. Verify against code before acting.
+
+## Release-readiness status — 2026-10-21
+
+**Verdict: not ready to deploy; ready for the next release-preparation stage** (commit the work, then a read-only production migration/config check). No production change has been made.
+
+### Verification levels
+- **Browser (owner-reported):** exercised by the project owner in a real browser against the **development** project `fdjixdmgcdljgncxsein`; reported in chat, not observed by the assistant (no browser tooling available).
+- **Automated:** `npm test` (in-memory PostgreSQL via PGlite with the deployed baseline + migrations, and static UI/source checks) or the guarded live dev probe `npm run test:live-dev`.
+- **Inspection:** read-only code/config review.
+- **Not verified:** none of the above.
+
+### Workflow coverage (development project)
+| Workflow | Browser (owner) | Automated | Notes |
+|---|---|---|---|
+| Admin login, dashboard | Yes | — | |
+| Admin student search; rooms directory, search, edit + persistence | Yes | Rooms rules: yes | Room create/edit/maintenance/capacity DB-tested |
+| Admin hostel edit; create + delete new hostel (persists after refresh) | Yes | — | Seeded-hostel deletion intentionally blocked (see below) |
+| Student registration → email confirmation → account linking → login | Yes | Linking logic: yes | Owner's own (non-seed) student linked after admin created the matching record |
+| Password recovery (forgot/reset) | Yes | — | Supabase Auth flow; not automatable here |
+| Resend confirmation email | Not verified | — | |
+| Warden pending-student allocation + persistence | Yes | Yes (scope, full/maintenance/cross-hostel rejected) | |
+| Admin allocate / transfer / release | Yes | Yes | |
+| Complaints: submit → warden/admin status → student sees result | Yes | Yes + live dev probe 10/10 | Staff can change status only (migration 20261021120000) |
+| Leave: submit → approve/reject with remark → student sees result | Yes | Yes | |
+| Notices: admin + warden create, persist, delete; student visibility | Yes | Yes | |
+| Role-specific notification bell (student, warden, admin) | Yes | — | |
+| Modals: Escape, backdrop, save-lock, focus trap, focus restoration | Yes | Yes (`test:ui` 51: logic + all 11 call sites) | |
+| `/admin/fees`, `/student/fees` → public homepage | Yes | Inspection | Fees out of scope |
+| Session persistence after refresh; logout | Partially (admin login session) | — | Not explicitly tested for every role |
+| Student cannot edit protected fields / link to another record; cross-hostel isolation | — | Yes (DB) + live dev read checks | |
+| Responsive/mobile layout; screen-reader announcement | Not verified | — | |
+| Landing page wording after QA fix | Not verified | — | |
+
+### Hostel management (verified 2026-10-21)
+- Creating a new hostel and deleting it works; the owner verified deletion persists after refresh.
+- Seeded hostels **cannot be deleted by design** while they contain rooms: the Delete button is disabled when `room_count > 0` ([Hostels.tsx](hostel-management/src/pages/admin/Hostels.tsx), tooltip "Only hostels with no rooms or students can be deleted").
+- A second safeguard in `deleteHostel` ([hostelsService.ts](hostel-management/src/services/hostelsService.ts)) refuses deletion when the hostel has rooms **or** associated students, including students waiting for allocation (`intended_hostel_id`). This protects occupied rooms (database `ON DELETE RESTRICT` on `students.room_id` would otherwise raise an error) and prevents waiting students from silently losing their intended hostel (`ON DELETE SET NULL`), plus cascade deletion of the hostel's rooms and notices.
+- The delete handler targets the selected card's own hostel ID; the confirmation dialog displays that hostel's name (inspection).
+- Dev data (read-only, 10-21): all three `[TEST]` hostels have rooms (8 / 5 / 2) and associated or waiting students, so all are protected.
+
+### Known limitations (accepted for this release)
+- **No room-deletion feature**, so an existing hostel with rooms cannot be emptied and deleted through the UI. Accepted limitation, not a defect; use reviewed SQL if ever required.
+- The reason for the disabled hostel Delete button is shown only as a hover tooltip; a visible explanation would improve accessibility (LOW, optional).
+- Fee management is out of scope (routes, pages and types removed).
+- Admin "Add/Edit Student" may show a stale "not linked yet" warning immediately after save even though the database linked the account (the list badge shows the correct state) — LOW, reproduced on PGlite.
+- Student "registration pending" message wording could be clearer for already-confirmed accounts — LOW.
+- Complaints from students still awaiting allocation are visible to admins only — by design.
+- Wardens can change room capacity in their own hostel at database level (no UI) — by design.
+- No pagination (Supabase 1,000-row response cap); student search with commas/brackets unverified — LOW.
+- A failed profile fetch during token refresh signs the user out — LOW.
+- `hostel-management/README.md` is still the unmodified Vite template (does not describe the project) — LOW, documentation.
+
+### Migration status
+| Migration (repository) | Development `fdjixdmgcdljgncxsein` | Production |
+|---|---|---|
+| `initial_setup_review3.sql` (baseline) | Applied (owner-reported setup) | Applied (owner-reported 10-18) |
+| `20261018130000_pending_allocation_intended_hostel.sql` | Applied (owner-reported setup) | Applied (owner-reported 10-18) |
+| `20261019120000_allow_pending_student_room_allocation.sql` | Applied (owner-reported; warden allocation works in browser) | **Unknown** |
+| `20261020120000_secure_student_account_linking.sql` | Applied (evidence: live linking + live probe) | **Unknown — believed not applied** |
+| `20261021120000_complaint_workflow_integrity.sql` | Applied (evidence: live probe returned this migration's `42501` message) | **Unknown — believed not applied** |
+| `supabase/archive/**` | Never run | Never run |
+| `supabase/seed/**` | Dev only (marker-guarded) | **Never run** |
+
+Rollbacks exist for 1912, 2012 and 2021 in `supabase/rollback/`. The read-only production status query is in the chat audit of 2026-10-21 (checks each migration, absence of the dev marker, duplicate student emails).
+
+### Development seed status
+- Last confirmed `seed:verify` (2026-10-21, after the live probe): all structural checks PASS (3 hostels, 15 rooms, 20 seeded students, 8 linked, occupancy matches allocations in every room, wardens assigned); complaint/leave totals 14/10 vs seeded 12/9 because of three owner-created "TEST —" records.
+- `dev_cleanup_manual_test_records.sql` was prepared for those three records; **whether it has been run is unverified**. It is a one-off script with hard-coded dev record IDs and is **excluded from the intended commit** (it remains untracked locally).
+- The owner has since created an additional legitimate student record (their own account), so the current student count may differ from the seeded 20. `seed:verify` assumes exact seed counts and was **not rerun**; do not delete the owner's record to make it pass.
+
+### Repository state (2026-10-21, read-only)
+- Branch `main`; 0 staged; 29 modified, 7 deleted, 32 untracked files; nothing committed since `0d274b2`.
+- Deleted: `src/pages/{admin,student}/Fees.tsx` (intended) and five SQL files moved to `supabase/archive/` (verified byte-identical copies).
+- Untracked: recovery pages, shared components/hooks, focus-trap helper, 2 migrations + 3 rollbacks, seed tooling, tests, `vercel.json`, `public/_redirects`, archive.
+- Secrets: real values from `.env.local`, `.env.development.local` and `seed.env.local` were checked against all pending changes — **none present**; no JWT/`sb_secret_`/`sb_publishable_` patterns. Only `.env.example` (placeholders) is tracked; the three env files and `dist/` are git-ignored.
+
+### Checks run 2026-10-21
+| Command | Result |
+|---|---|
+| `npm test` | **PASS** — rls 59, seed 56, ui 51 passed; 0 failed (offline: PGlite + static checks) |
+| `npx tsc -b --noEmit` | **PASS** |
+| `npm run lint` | **PASS** — 0 errors; 5 pre-existing warnings (`set-state-in-effect` ×4, `exhaustive-deps` ×1 in Student Leave/Complaints, Warden Complaints/Dashboard) |
+| `npm run build` | **PASS** — no warnings (app 58 kB, react-vendor 258 kB, supabase 214 kB) |
+| `seed:accounts`, `test:live-dev`, `seed:verify` | **Skipped** — create users / temporarily mutate dev data / assume exact seed counts |
+
+### Production readiness
+- **Known (local evidence):** `.env.local` (production build env) holds a publishable key for a project that is not the dev project; no `VITE_DEMO_*`; build fails without Supabase env vars; `vercel.json` and `_redirects` route all paths to `index.html`; `engines.node >=20.19`.
+- **Unknown (must be checked in production, read-only first):** migration status above; Authentication → Email "Confirm email" (must be ON — the linking security depends on it); Data API exposed schemas (must not include `private`; verified only in dev); Site URL and Redirect URLs (need the Vercel domain); Vercel project/env vars (not created).
+
+### Next steps (in order)
+1. Optional quick browser checks: resend confirmation, landing wording, mobile layout.
+2. Commit the reviewed work (owner instruction required); Vercel deploys from Git.
+3. Read-only production check: migration status query + existing-link audit + dashboard settings (Confirm email, exposed schemas).
+4. With owner authorization, apply only missing migrations to production in order (`1912` → `2012` → `2021`); never `archive/` or `seed/`.
+5. Create the Vercel project (root `hostel-management`, production env vars only), deploy, set Supabase Site URL / Redirect URLs, then smoke-test production.
+6. Housekeeping: rotate the dev secret key; replace the template README.
+
+## Status — 2026-10-20 (historical; superseded where the 2026-10-21 section differs)
+
+### Verification levels used here
+- **DB-tested**: executed in real PostgreSQL (PGlite, in-memory) with the deployed baseline + migrations, as simulated Supabase `authenticated` users, via `npm run test:db`. Not the live project.
+- **Build-checked**: `tsc`, `oxlint`, `vite build` pass. Proves compilation only.
+- **Live-verified**: exercised in the browser against the configured Supabase project. **Nothing from 2026-10-20 is live-verified yet.** *(Superseded 2026-10-21: most workflows were since browser-verified by the owner in dev — see "Workflow coverage".)*
+
+### Migration state (what is applied to the live project)
+| File | Live state | Notes |
+|---|---|---|
+| `initial_setup_review3.sql` | Applied (owner-reported) | This — not `schema.sql` — is the deployed baseline (`private.*` helpers, `private.handle_new_user()`). DB-tested: applies cleanly on a fresh DB. |
+| `archive/migrations/20261018120000_harden_signup_role.sql` (moved 10-21) | Do **not** run | Targets `public.handle_new_user()`, which does not exist in the deployed baseline. Baseline already forces `student`. |
+| `migrations/20261018130000_pending_allocation_intended_hostel.sql` | Applied (owner-reported) | DB-tested. |
+| `migrations/20261019120000_allow_pending_student_room_allocation.sql` | **Unknown — awaiting Batch 0 SQL output** *(2026-10-21: applied in dev; production still unknown)* | Required for warden "Allocate Room" on pending students. DB-tested: applies cleanly before or after 20261020120000. |
+| `archive/migrations/20261019140000_link_verified_student_accounts.sql` (moved 10-21) | **Cannot apply — superseded** | DB-tested: aborts with `function "public.handle_new_user()" does not exist` on the deployed baseline. Do not run; use 20261020120000. |
+| `migrations/20261020120000_secure_student_account_linking.sql` | **Not applied — ready for review** | Idempotent; supersedes 20261019140000. DB-tested apply, rollback, re-apply. Rollback: `rollback/20261020120000_secure_student_account_linking.sql`. Applied in **dev** (owner-reported 10-20/21); production pending. |
+| `migrations/20261021120000_complaint_workflow_integrity.sql` | **New 10-21** *(2026-10-21: applied in dev — live probe evidence; production unknown)* | Forces non-admin complaint inserts to `pending`; staff (non-owner, non-admin) may change only complaint status. DB-tested incl. re-run and rollback→reapply. Rollback: `rollback/20261021120000_complaint_workflow_integrity.sql`. |
+
+### Security fix: student-record hijack (P0)
+- **Problem (DB-tested on the current live schema):** any signed-in user could set their own `profiles.email`/`full_name` to another student's values; the admin Students page then linked that student's record to the attacker (`findStudentProfileId` matched by profile email + name, bypassing email confirmation and student ID).
+- **Fix:** the browser never writes `students.user_id` ([studentsService.ts](hostel-management/src/services/studentsService.ts)). Migration 20261020120000 links only in the database when the Auth email is **confirmed**, exactly one record has that email, and the signup `student_id` matches. Linking runs on account creation/confirmation **and** when an admin creates a record (or fixes its email) after the student signed up. It also blocks non-admin profile email changes, limits students to editing phone/guardian/address on their own record, and rejects allocations into maintenance rooms.
+- **Until 20261020120000 is applied**, admin-created records will not link at all (safe failure; the student sees "registration pending").
+- **Hard requirement:** Supabase → Authentication → Providers → Email → **Confirm email = ON**. With it off, any unverified signup is treated as verified.
+
+### Onboarding design (no admin-set passwords)
+1. Admin creates the student record (email, student ID, intended hostel). No login is created.
+2. Student registers at `/register` with the same email + student ID and their own password, then confirms the email.
+3. The database links the account automatically (either order works). Lost password → `/forgot-password`.
+
+### Frontend changes (build-checked, not live-verified)
+- Password recovery: `/forgot-password`, `/reset-password` ([ForgotPassword.tsx](hostel-management/src/pages/ForgotPassword.tsx), [ResetPassword.tsx](hostel-management/src/pages/ResetPassword.tsx)); resend confirmation on Login ("Email not confirmed") and after Register; signup sends `emailRedirectTo=<origin>/login`.
+- Student Profile and My Room now show the real linked record (were hardcoded "Aarav Sharma"); students can edit contact details.
+- Warden Leave and Admin Leave: live list + approve/reject with remark ([LeaveReview.tsx](hostel-management/src/components/leave/LeaveReview.tsx)).
+- Admin/Warden Notices: publish/list/delete ([NoticeManager.tsx](hostel-management/src/components/notices/NoticeManager.tsx)); wardens limited to assigned hostel, admins may post global notices.
+- Admin Allocations: allocate / transfer / release across hostels (was static).
+- Admin Rooms: edit floor, capacity, maintenance.
+- Fees: **Fee management is out of scope for this release.** No fees table, service, page, route or type exists; `/admin/fees` and `/student/fees` were removed on 2026-10-21 (unknown paths redirect to `/`). Do not add fee functionality without a separate scope decision.
+- SPA rewrites for hosting: `vercel.json`, `public/_redirects` (Netlify).
+
+### Checks run 2026-10-20
+| Check | Result |
+|---|---|
+| `npm run test:db` | **51 passed, 0 failed** (onboarding both orders, unconfirmed/mismatched not linked, hijack attempts blocked, role escalation blocked, student self-edit limits, warden scoping, allocation + capacity + transfer + maintenance, complaints, leave workflow, notices visibility) |
+| Migration order tests | baseline+130+2012, +1912 before/after 2012, 2012 rollback+reapply: all apply |
+| `npx tsc -p tsconfig.app.json --noEmit` | Pass |
+| `npm run lint` | Pass; same 5 pre-existing hook warnings |
+| `npm run build` | Pass; chunk-size warning (637 kB) |
+
+### Required owner actions
+1. Run the Batch 0 read-only SQL (in the chat) and share output → decide on 20261019120000.
+2. Review then apply `20261020120000_secure_student_account_linking.sql` in SQL Editor as `postgres`.
+3. Supabase Auth settings: Confirm email ON; URL Configuration → Site URL = deployed URL; Redirect URLs include `http://localhost:5173/**` and `https://<deployed-host>/**`.
+4. Live smoke test (Section F matrix in chat / list below).
+
+### Live smoke test (historical plan; dev browser testing done 2026-10-21, production smoke test still pending)
+admin login + refresh persistence → create room → create student (intended hostel A) → student registers + confirms → student dashboard shows record → warden 1 allocates → student sees room → full-room rejection → complaint → warden resolves → leave → warden approves with remark → notices (warden hostel, admin global) → forgot/reset password → resend confirmation → cross-role URL redirects.
+
+### Current priority (owner decision, 2026-10-20)
+**Deployment and Git commit/push are paused.** First goal: complete, end-to-end-tested product using dummy data in a **new, separate development Supabase project** (owner chose this; the repo previously referenced only the production project). No dummy data goes into the existing project.
+
+### Functionality matrix (2026-10-20)
+Legend — **Code**: implemented (inspection). **DB**: page uses real Supabase queries. **AuthZ**: enforced by RLS/triggers, not just routing. **Auto**: covered by `npm run test:db` (real Postgres via PGlite, simulated users). **Browser**: exercised in a real browser against a configured project. "—" = not applicable.
+
+| Area | Feature | Code | DB | CRUD | AuthZ | Auto | Browser | Blocker / note |
+|---|---|---|---|---|---|---|---|---|
+| Auth | Email/password login, role routing | Yes | Yes | — | Yes | Partial (role trigger) | Admin only (owner, 10-18) | Warden/student login untested |
+| Auth | Session persists after refresh | Yes | Yes | — | — | No | No | Browser test |
+| Auth | Student registration + email confirmation | Yes | Yes | C | Yes | Yes (link logic) | No | Needs dev project w/ Confirm email ON |
+| Auth | Verified account linking (DB-only) | Yes | Yes | — | Yes | Yes (both orders, hijack blocked) | No | Migration 2012 unapplied |
+| Auth | Forgot / reset password | Yes | Yes | U | Supabase Auth | No (Auth service) | No | Redirect URLs; real inbox needed |
+| Auth | Resend confirmation | Yes | Yes | — | Supabase Auth | No | No | Real inbox needed |
+| Auth | Logout | Yes | Yes | — | — | No | No | — |
+| Admin | Dashboard counts | Yes | Yes | R | Yes | Indirect | No | — |
+| Admin | Hostels: list/create | Yes | Yes | C R | Yes | Yes | Create: owner 10-18 | — |
+| Admin | Hostels: edit + warden assignment | Yes (new) | Yes | U | Yes (admin-only update) | Policy tested indirectly | No | — |
+| Admin | Hostels: delete (empty only) | Yes (new) | Yes | D | Yes; FK blocks occupied | No | No | Guard is client-side + FK |
+| Admin | Rooms: create/edit/maintenance | Yes | Yes | C R U | Yes | Yes (capacity, maintenance, dup) | No | Delete not offered (by design) |
+| Admin | Students: create/edit, linked badge | Yes | Yes | C R U | Yes | Yes | List load: owner 10-18 | Delete not offered |
+| Admin | Allocations: allocate/transfer/release | Yes | Yes | U | Yes | Yes | No | — |
+| Admin | Complaints: view + Start/Resolve | Yes (actions new) | Yes | R U | Yes | Yes | No | — |
+| Admin | Leave: view + approve/reject + remark | Yes | Yes | R U | Yes (trigger sets approved_by) | Yes | No | — |
+| Admin | Notices: publish global/hostel, delete | Yes | Yes | C R D | Yes | Yes | No | Edit not offered |
+| Warden | Dashboard (assigned hostel) | Yes | Yes | R | Yes | Indirect | No | Resident count excludes pending |
+| Warden | Students incl. pending queue | Yes | Yes | R | Yes (hostel-scoped) | Yes (cross-warden blocked) | No | — |
+| Warden | Allocate pending student | Yes | Yes | U | Yes | Yes (full/maintenance/cross-hostel rejected) | No | Needs migration 1912 live |
+| Warden | Rooms view | Yes | Yes | R | Yes | Yes | No | Read-only by design |
+| Warden | Complaints Start/Resolve | Yes | Yes | R U | Yes | Yes | No | Complaints from *pending* students visible to admin only |
+| Warden | Leave approve/reject + remark | Yes | Yes | R U | Yes | Yes | No | — |
+| Warden | Notices for assigned hostel | Yes | Yes | C R D | Yes (no global) | Yes | No | — |
+| Student | Dashboard / Profile / My Room (real data) | Yes | Yes | R, U contact | Yes (contact-only edits) | Yes | No | — |
+| Student | Complaints submit + history | Yes | Yes | C R | Yes | Yes | No | — |
+| Student | Leave submit + history + status/remark | Yes (silent-failure fix) | Yes | C R | Yes (forced pending) | Yes | No | — |
+| Student | Notices (global + own hostel) | Yes | Yes | R | Yes | Yes | No | — |
+| Fees | — | **Out of scope for this release** | — | — | — | — | — | Routes, placeholder pages and unused `Fee`/`FeeStatus` types removed 2026-10-21 |
+
+**Nothing in the matrix is end-to-end verified yet.** Automated coverage is DB-level only; UI wiring is verified by inspection, typecheck and build. *(Superseded 2026-10-21: see "Workflow coverage" for owner-reported browser verification.)*
+
+### Development environment and dummy data
+Files (all in [`hostel-management/supabase/seed/`](hostel-management/supabase/seed/)):
+| File | Purpose |
+|---|---|
+| `00_mark_dev_environment.sql` | Run once **only in the dev project**. Seed/cleanup/account script refuse to run without this marker. Marker table has RLS enabled with no policies (anon/authenticated denied even if granted); `public.dev_environment_marker()` is executable by `service_role` only. |
+| `test-accounts.mjs` | Fictional logins (1 admin, 3 wardens, 8 students) at reserved `@hostel-test.example`; no passwords. |
+| `create-test-accounts.mjs` | Creates/deletes those logins via Supabase **Auth Admin API** (email-confirmed). Requires `SEED_ALLOWED_PROJECT_REF` to match the URL. `--reset-passwords`, `--delete`. |
+| `seed.env.example` | Template for git-ignored `seed.env.local` (service-role key lives only there, never `VITE_`). |
+| `dev_seed.sql` | Idempotent dataset: 3 hostels (`[TEST] …`, Shivalik empty), 15 rooms (full/partial/empty/maintenance), 20 students `TST26-001…020` (14 allocated, 6 awaiting allocation, 8 linked, 12 unlinked), 12 complaints (6/3/3 pending/in-progress/resolved), 9 leave (4/3/2 pending/approved/rejected), 5 notices. Built-in consistency checks roll back on any mismatch. |
+| `dev_cleanup_manual_test_records.sql` | **Excluded from the intended commit (2026-10-21)**; kept locally as an untracked audit trail. One-off, dev only: atomically deletes the 3 owner-created "TEST —" records (2 complaints, 1 leave) by exact ID + prefix; marker-guarded; rolls back unless exactly 2 + 1 rows are deleted. PGlite-validated (success, mismatch rollback, no-marker, re-run). REST-API script deliberately not used: it cannot roll back across two tables. |
+| `dev_seed_cleanup.sql` | Removes only `[TEST]` hostels, `TST26-` students, test-domain records (and anything created inside test hostels). |
+
+Automated: `node supabase/tests/seed.test.mjs` (part of `npm run test:db`) — **43 passed**: marker guard, exact counts, occupancy = allocations, warden/approver consistency, idempotent re-run, both login/seed orders, seeded-persona RLS, cleanup preserves non-test rows, reseed.
+
+Dev project setup (owner, ~15 min):
+1. Create a new Supabase project. Authentication → Providers → Email: **Confirm email ON**. URL Configuration: Site URL `http://localhost:5173`, Redirect URLs `http://localhost:5173/**`.
+2. SQL Editor, in order: `supabase/initial_setup_review3.sql` → `migrations/20261018130000_…` → `migrations/20261019120000_…` → `migrations/20261020120000_…` → `migrations/20261021120000_…` → `seed/00_mark_dev_environment.sql`. (`supabase/migrations/` now contains only valid files, in apply order; old/broken SQL is in `supabase/archive/` with a README.)
+3. Copy `supabase/seed/seed.env.example` → `seed.env.local`; fill dev URL, dev service-role key, dev project ref, a 12+ char test password. Run `npm run seed:accounts`.
+4. SQL Editor: run `seed/dev_seed.sql`; expect summary `3 | 15 | 20 | 6 | 8 | 12 | 9 | 4`.
+5. Create `hostel-management/.env.development.local` (git-ignored) with the dev project's `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY`. `npm run dev` now uses dev; the Login badge shows the dev project ref. `.env.local` (production) is unchanged and still used by `npm run build`.
+
+### Final QA audit — 2026-10-21
+Owner-reported browser results (dev project): admin, warden and student core workflows pass (see chat 10-21); student bell verified. Assistant could not perform browser testing (no browser automation available).
+
+| # | Severity | Finding | Status |
+|---|---|---|---|
+| 1 | HIGH | Broken/stale SQL (`20261018120000`, `20261019140000`, `schema.sql`, proposal) inside `supabase/` could be applied by mistake | **Fixed**: moved to `supabase/archive/` + README |
+| 2 | MEDIUM | Warden could rewrite a student's complaint title/description | **Fixed** in migration `20261021120000` (needs applying) |
+| 3 | MEDIUM | Student could insert a complaint already `resolved`/`in_progress` | **Fixed** in migration `20261021120000` (needs applying) |
+| 4 | MEDIUM | Modal lacked dialog semantics/focus handling; backdrop click never closed it (target was the backdrop, not the overlay) | **Fixed** in `Modal.tsx`; browser-verified by owner 2026-10-21 |
+| 4b | LOW–MEDIUM | (10-21 follow-up) No Tab focus trap; focus lost to `<body>` when the trigger is removed; Student Leave Cancel not disabled while saving | **Fixed**: document-level Tab trap + focusin guard in `Modal.tsx` (pure logic in `src/components/ui/focusTrap.ts`); restore to trigger, else `<main>` (tabIndex -1), only when focus would otherwise be lost; Leave Cancel `disabled={saving}`. `npm run test:ui` 51 passed (unit + all-11-call-site checks). Browser-verified by owner 2026-10-21 |
+| 5 | LOW | Landing page showed invented statistics (500+ students, 200+ rooms) | **Fixed**: replaced with true product facts |
+| 6 | LOW | Single 642 kB JS bundle | **Fixed**: lazy routes + vendor chunks (app 57 kB; no size warning) |
+| 7 | LOW | A failed profile fetch during token refresh signs the user out | Open (documented) |
+| 8 | LOW | Wardens may change room capacity in own hostel (DB only); students may change own display name | By design (documented) |
+| 9 | LOW | Complaints from students awaiting allocation are visible to admins only | By design (documented) |
+| 10 | LOW | 5 pre-existing hook lint warnings; no pagination (1,000-row API cap) | Open |
+| 11 | UNVERIFIED | Student search with commas/brackets may error | Open |
+| 12 | LOW | Dev secret key appeared in session tool output | Rotate dev secret after testing |
+| 13 | BLOCKER | Production config (migrations, Confirm email, Vercel env, redirect URLs) | Owner action at deploy |
+
+Complaint workflow live probe — 2026-10-21 (`npm run test:live-dev`, dev project `fdjixdmgcdljgncxsein` only; guards: exact dev ref + dev marker; snapshot + verified restore path before probing): **10 PASS, 0 FAIL, 0 NOT RUN**. Assigned warden rejected for title/description/category (`42501`, workflow trigger) and student_id/room_id (`P0001`, baseline complaint integrity trigger); other-hostel warden updated 0 rows; legitimate status change succeeded; student insert with `resolved` stored as `pending`; target row restored to an identical snapshot; temporary complaint deleted (TST26-001 count 3 → 3). Local suite adds per-column warden tests (title, category, student_id, room_id): `rls.test.mjs` 59 passed. `seed:verify` afterwards: all structural checks pass; complaint/leave totals 14/10 vs seeded 12/9 because of three owner-created "TEST —" records from manual browser testing (pre-existing, not probe residue).
+
+Verified boundaries (PGlite + live dev API read checks): no cross-student or cross-hostel reads; no role self-promotion or profile insertion; warden cannot move residents to another hostel, release them, or reassign hostels; anon denied on tables; `private` schema not exposed (live dev: `PGRST106`); dev marker denied to anon.
+
+### Deployment (chosen: Vercel + existing Supabase project) — PAUSED
+- Vercel project settings: Root Directory `hostel-management`; Framework Preset `Vite`; Build `npm run build`; Output `dist`; Install `npm install`; Node 22.x (package.json `engines.node >=20.19`).
+- Vercel env vars (Production + Preview): `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` (anon/publishable key only; never service-role). Do **not** set `VITE_DEMO_*`.
+- `vite.config.ts` now fails the build if either Supabase variable is missing, so a misconfigured deploy can never ship offline demo mode (which accepts any password). Verified locally: build passes with env, fails without.
+- `vercel.json` rewrites every non-file path to `index.html` (covers `/login`, `/register`, `/forgot-password`, `/reset-password`, `/student/*`, `/warden/*`, `/admin/*`).
+- After the first deploy: Supabase → Authentication → URL Configuration → Site URL = `https://<project>.vercel.app`; Redirect URLs add `https://<project>.vercel.app/**` and `http://localhost:5173/**`.
+
+### Migration 20261020120000 review notes (2026-10-20)
+- Trigger entry points (`handle_verified_student_auth_link`, `handle_student_record_link`) catch errors and emit a WARNING, so a linking problem can never block sign-up or email confirmation; the record simply stays unlinked.
+- Replaces two existing functions in place: `private.prevent_student_identity_reassignment()` and `private.check_student_room_allocation()` (baseline body + maintenance check). Does not modify any RLS policy, table, column, or constraint other than adding unique index `uq_students_normalized_email`.
+- Data changes: links eligible unlinked records; syncs student profile email to verified auth email. Never changes already-linked records.
+- Does not touch pending-allocation logic; 20261019120000 is independent and DB-tested in either order.
+- Supabase SQL Editor "destructive operation" warning was caused only by six `DROP TRIGGER IF EXISTS` lines (drop-then-recreate of the migration's own triggers). Replaced with `CREATE OR REPLACE TRIGGER` (PG14+); the file now contains no drop/delete/truncate keyword. Row-level before/after diff on PGlite with mixed data: 0 rows deleted or added in any table; only the one eligible unlinked student received `user_id`. Tests 51 + 47 pass; re-run and rollback→reapply pass.
 
 ## Latest verified session status — 2026-10-18
 
@@ -72,10 +323,10 @@ The four-day objective is therefore integration and reliability, not a visual re
 | Icons | `lucide-react` `^1.49.0` |
 | Data/auth client | `@supabase/supabase-js` `^2.117.2` |
 | Lint | Oxlint `^1.81.0`, configured in [`hostel-management/.oxlintrc.json`](hostel-management/.oxlintrc.json) |
-| Database target | Supabase PostgreSQL, defined locally in [`hostel-management/supabase/schema.sql`](hostel-management/supabase/schema.sql) |
-| Tests | No test script, test files, Vitest/Jest/Playwright/Cypress configuration found |
+| Database target | Supabase PostgreSQL. *(Corrected 2026-10-21: the deployed baseline is [`hostel-management/supabase/initial_setup_review3.sql`](hostel-management/supabase/initial_setup_review3.sql) plus [`supabase/migrations/`](hostel-management/supabase/migrations/); the original audit cited `schema.sql`, now archived at [`supabase/archive/schema.sql`](hostel-management/supabase/archive/schema.sql).)* |
+| Tests | *(2026-10-18 audit: none found.)* **Corrected 2026-10-21:** `npm test` runs `test:db` (PGlite in-memory PostgreSQL: [`supabase/tests/rls.test.mjs`](hostel-management/supabase/tests/rls.test.mjs), [`supabase/tests/seed.test.mjs`](hostel-management/supabase/tests/seed.test.mjs)) and `test:ui` ([`tests/ui/modal-focus.test.mjs`](hostel-management/tests/ui/modal-focus.test.mjs)); no Vitest/Jest/Playwright/Cypress |
 
-The package lock is present. The package scripts are `dev`, `build`, `lint`, and `preview` in [`hostel-management/package.json`](hostel-management/package.json). There is no root package script; commands must run from `hostel-management/`.
+The package lock is present. The package scripts were `dev`, `build`, `lint`, and `preview` at the 2026-10-18 audit; *as of 2026-10-21* [`hostel-management/package.json`](hostel-management/package.json) also has `test`, `test:db`, `test:ui`, `test:live-dev` (dev project only; temporarily changes and restores a dev record), `seed:accounts` and `seed:verify` (dev project only). There is no root package script; commands must run from `hostel-management/`.
 
 ### Application flow
 
@@ -104,16 +355,21 @@ The application now has a verified live Supabase auth path for the admin and liv
 | [`hostel-management/src/lib/supabase.ts`](hostel-management/src/lib/supabase.ts) | Supabase client and configuration detection | Environment/client behavior; never put secrets here |
 | [`hostel-management/src/services/`](hostel-management/src/services/) | Supabase CRUD wrappers plus offline mock fallback | Database operations and error mapping |
 | [`hostel-management/src/types/index.ts`](hostel-management/src/types/index.ts) | Shared domain and dashboard types | Keep types aligned with the SQL schema |
-| [`hostel-management/supabase/schema.sql`](hostel-management/supabase/schema.sql) | Local baseline schema, triggers, helper functions, RLS policies, seed hostels | Compare with deployed state; apply only with explicit approval and a migration plan |
-| [`hostel-management/supabase/migrations/`](hostel-management/supabase/migrations/) | Versioned signup-role and pending-allocation migrations | Review deployed definitions/state before rerunning; never assume migration files equal deployed state |
-| [`hostel-management/supabase/proposed_2026-10-18_security_hardening.sql`](hostel-management/supabase/proposed_2026-10-18_security_hardening.sql) | Unapplied security/integrity hardening proposal | Review with the project owner; do not run automatically |
+| [`hostel-management/supabase/initial_setup_review3.sql`](hostel-management/supabase/initial_setup_review3.sql) | **Deployed baseline** (corrected 2026-10-21): tables, `private.*` RLS helpers, triggers, 27 RLS policies; for fresh projects only (aborts if tables exist) | Never rerun on an existing project |
+| [`hostel-management/supabase/archive/schema.sql`](hostel-management/supabase/archive/schema.sql) | Archived 2026-10-21 (was `supabase/schema.sql`): outdated original schema with broad warden policies; **not** the baseline | Do not run; history only |
+| [`hostel-management/supabase/migrations/`](hostel-management/supabase/migrations/) | *(As of 2026-10-21)* Only valid migrations, in apply order: `20261018130000`, `20261019120000`, `20261020120000`, `20261021120000` | Check status read-only before applying; `20261019120000` cannot be re-run once applied or rolled back (its precheck aborts safely) |
+| [`hostel-management/supabase/rollback/`](hostel-management/supabase/rollback/) | Rollbacks for `20261019120000`, `20261020120000`, `20261021120000` | Roll back in reverse order; review before use |
+| [`hostel-management/supabase/archive/`](hostel-management/supabase/archive/) | Archived SQL (see its README): broken `20261018120000` / `20261019140000` (+ rollback), `schema.sql`, the 2026-10-18 proposal | **Never run** |
+| [`hostel-management/supabase/seed/`](hostel-management/supabase/seed/) | Dev-only seed/cleanup tooling, guarded by the dev marker | Never run in production |
+| [`hostel-management/supabase/tests/`](hostel-management/supabase/tests/), [`hostel-management/tests/ui/`](hostel-management/tests/ui/) | Automated tests (`npm test`) and the dev-only live probe | Offline except `test:live-dev` |
+| [`hostel-management/supabase/archive/proposed_2026-10-18_security_hardening.sql`](hostel-management/supabase/archive/proposed_2026-10-18_security_hardening.sql) | Archived 2026-10-21: unapplied 2026-10-18 hardening proposal, superseded by `initial_setup_review3.sql` and the migrations | Do not run; history only |
 | [`hostel-management/.env.example`](hostel-management/.env.example) | Placeholder environment variable names | Document names only, never values |
 | [`hostel-management/.gitignore`](hostel-management/.gitignore) and [`.gitignore`](.gitignore) | Ignore rules for secrets, dependencies, output, and editor files | Preserve secret/build exclusions |
 | [`hostel-management/vite.config.ts`](hostel-management/vite.config.ts) | Vite and Tailwind plugin configuration | Build configuration |
 | [`hostel-management/tsconfig*.json`](hostel-management/) | TypeScript project configuration | Type checking/compiler behavior |
 | [`HOSTEL_PROJECT_HANDOFF.md`](HOSTEL_PROJECT_HANDOFF.md) | This maintained project state and next-task tracker | Update after every meaningful session |
 
-No application test directory, CI workflow, or root-level application runtime exists in the audited tree. Versioned SQL migrations are present under `hostel-management/supabase/migrations/`; `hostel-management/supabase/.temp/` is local Supabase tooling state and should not be treated as the applied database schema.
+No application test directory, CI workflow, or root-level application runtime existed in the 2026-10-18 audited tree. *(Corrected 2026-10-21: test directories now exist (see the Tests row in section B); there is still no CI workflow or root-level runtime.)* Versioned SQL migrations are present under `hostel-management/supabase/migrations/`; `hostel-management/supabase/.temp/` is local Supabase tooling state and should not be treated as the applied database schema.
 
 ## D. Current Implementation Inventory
 
@@ -132,11 +388,11 @@ Status meanings are intentionally strict. A feature is `Complete` only when its 
 | Student management | Partial | [`src/pages/admin/Students.tsx`](hostel-management/src/pages/admin/Students.tsx), [`src/pages/warden/Students.tsx`](hostel-management/src/pages/warden/Students.tsx), [`src/services/studentsService.ts`](hostel-management/src/services/studentsService.ts) | Admin listing/search/create/edit and warden listing/search call Supabase services; distinct explicit hostel FK aliases are in use. | Verify student record persistence and intended-hostel visibility in the warden's pending queue. Auth account creation remains separate; room allocation is not connected to this form. | Admin Students browser page loaded after FK fix; admission/queue workflow not run. |
 | Hostel management | Partial | [`src/pages/admin/Hostels.tsx`](hostel-management/src/pages/admin/Hostels.tsx), [`src/services/hostelsService.ts`](hostel-management/src/services/hostelsService.ts) | Directory and Add Hostel use live Supabase data; warden choices come from existing `profiles` rows with role `warden`; counts use room/allocation data. No mock hostel fallback in this service. | Continue live RLS/error testing; room and student management are separate workflows. | Owner confirmed create, database row, assignment, and appearance after browser refresh. |
 | Room management | Partial | [`src/pages/admin/Rooms.tsx`](hostel-management/src/pages/admin/Rooms.tsx), [`src/pages/warden/Rooms.tsx`](hostel-management/src/pages/warden/Rooms.tsx), [`src/services/roomsService.ts`](hostel-management/src/services/roomsService.ts) | Static room views; service has list/read/create/update. | Connect room CRUD and maintenance/status controls; validate hostel and capacity inputs. | Build passed; no DB operation test. |
-| Room allocation/capacity | Partial | [`src/pages/admin/Allocations.tsx`](hostel-management/src/pages/admin/Allocations.tsx), [`src/services/studentsService.ts`](hostel-management/src/services/studentsService.ts), [`supabase/schema.sql`](hostel-management/supabase/schema.sql) | Service exposes `assignRoom`; SQL trigger validates room existence/capacity and synchronizes occupancy. UI allocation is not connected. | Implement allocation/transfer form, surface database errors, test full-room rejection and occupancy updates. | Trigger exists locally; live trigger and UI not verified. |
+| Room allocation/capacity | Partial | [`src/pages/admin/Allocations.tsx`](hostel-management/src/pages/admin/Allocations.tsx), [`src/services/studentsService.ts`](hostel-management/src/services/studentsService.ts), [`supabase/archive/schema.sql`](hostel-management/supabase/archive/schema.sql) | Service exposes `assignRoom`; SQL trigger validates room existence/capacity and synchronizes occupancy. UI allocation is not connected. | Implement allocation/transfer form, surface database errors, test full-room rejection and occupancy updates. | Trigger exists locally; live trigger and UI not verified. |
 | Complaints | Partial | [`src/pages/student/Complaints.tsx`](hostel-management/src/pages/student/Complaints.tsx), [`src/pages/warden/Complaints.tsx`](hostel-management/src/pages/warden/Complaints.tsx), [`src/pages/admin/Complaints.tsx`](hostel-management/src/pages/admin/Complaints.tsx), [`src/services/complaintsService.ts`](hostel-management/src/services/complaintsService.ts) | Static complaint cards/tables; service supports list/read/create/status update. | Connect student submission and warden/admin status changes; verify ownership and scope. | No page service callers; no persistence test. |
 | Leave requests | Partial | [`src/pages/student/Leave.tsx`](hostel-management/src/pages/student/Leave.tsx), [`src/pages/warden/Leave.tsx`](hostel-management/src/pages/warden/Leave.tsx), [`src/pages/admin/Leave.tsx`](hostel-management/src/pages/admin/Leave.tsx), [`src/services/leaveService.ts`](hostel-management/src/services/leaveService.ts) | Static requests; Approve/Reject buttons have no handlers; service supports create/status update. | Connect forms/decisions, remarks, dates, `approved_by`, and student refresh visibility. | No page service callers; no persistence test. |
 | Notices | Partial | [`src/pages/student/Notices.tsx`](hostel-management/src/pages/student/Notices.tsx), [`src/pages/warden/Notices.tsx`](hostel-management/src/pages/warden/Notices.tsx), [`src/pages/admin/Notices.tsx`](hostel-management/src/pages/admin/Notices.tsx), [`src/services/noticesService.ts`](hostel-management/src/services/noticesService.ts) | Static notices; service supports list/create/delete. | Connect publish/delete/list and hostel visibility; secure author identity. | No page service callers; no live test. |
-| Fees | Pending | [`src/pages/student/Fees.tsx`](hostel-management/src/pages/student/Fees.tsx), [`src/pages/admin/Fees.tsx`](hostel-management/src/pages/admin/Fees.tsx), [`src/types/index.ts`](hostel-management/src/types/index.ts) | UI/type and hardcoded fee records exist. No fee table or fee service exists. | Keep secondary; either label as demonstrative or define a separately approved fee schema/workflow. No payment integration is in scope. | Code inspection only. |
+| Fees | Out of scope (this release) | — (removed 2026-10-21) | No fee feature exists. | None for this release. | Routes, pages and types removed; see "Latest status". |
 | Dashboards/statistics | Partial | [`src/pages/admin/Dashboard.tsx`](hostel-management/src/pages/admin/Dashboard.tsx), [`src/pages/student/Dashboard.tsx`](hostel-management/src/pages/student/Dashboard.tsx), [`src/pages/warden/Dashboard.tsx`](hostel-management/src/pages/warden/Dashboard.tsx) | All three dashboard files call Supabase services when configured; real role-specific metrics and RLS visibility are not comprehensively verified. | Test with each live role; audit any remaining hardcoded activity/data and correct scoped queries. | Admin login route verified, dashboard data/RLS matrix not verified. |
 | Database integration | Partial | [`supabase/migrations/`](hostel-management/supabase/migrations/), [`src/lib/supabase.ts`](hostel-management/src/lib/supabase.ts), [`src/services/`](hostel-management/src/services/) | Owner verified deployed auth role hardening, student relationship migration/policy, hostel records, and admin-hostel persistence. Other modules and the full authorization matrix remain incomplete. | Continue the student admission/pending-allocation test, then wire and verify remaining modules without weakening RLS. | Live facts recorded from owner-provided Supabase/browser results; not independently queried in this handoff. |
 
@@ -144,7 +400,9 @@ Status meanings are intentionally strict. A feature is `Complete` only when its 
 
 ### Local SQL definition
 
-[`hostel-management/supabase/schema.sql`](hostel-management/supabase/schema.sql) is the local baseline definition/seed script, not proof of deployed state. Versioned migrations are also present; the owner reports the signup-role hardening and pending-allocation migration states described in the latest session entry. No complete applied-schema export was reviewed here.
+> **Correction 2026-10-21:** the deployed baseline is [`supabase/initial_setup_review3.sql`](hostel-management/supabase/initial_setup_review3.sql) plus `supabase/migrations/`. The paragraph and tables below describe the original `schema.sql` (now archived) and are kept for history only.
+
+[`hostel-management/supabase/archive/schema.sql`](hostel-management/supabase/archive/schema.sql) is the local baseline definition/seed script, not proof of deployed state. Versioned migrations are also present; the owner reports the signup-role hardening and pending-allocation migration states described in the latest session entry. No complete applied-schema export was reviewed here.
 
 Tables defined with `CREATE TABLE IF NOT EXISTS`:
 
@@ -190,11 +448,11 @@ Important local-policy risks to verify before treating the schema as secure:
 
 ### Live-state boundary
 
-The original 2026-10-18 connection attempt returned `PGRST205` for `public.hostels`; that observation is historical and is superseded by the owner's later confirmation that the table exists and contains `hostel A`. Per the owner, the deployed signup trigger/function, role-protection trigger/function, and `students_select_scoped` policy were inspected and confirmed as summarized in the latest status above. The intended-hostel migration was applied and verified. The full deployed schema and RLS matrix are still **not independently audited or exhaustively tested**. The separate [`proposed_2026-10-18_security_hardening.sql`](hostel-management/supabase/proposed_2026-10-18_security_hardening.sql) proposal remains distinct; do not assume it was applied.
+The original 2026-10-18 connection attempt returned `PGRST205` for `public.hostels`; that observation is historical and is superseded by the owner's later confirmation that the table exists and contains `hostel A`. Per the owner, the deployed signup trigger/function, role-protection trigger/function, and `students_select_scoped` policy were inspected and confirmed as summarized in the latest status above. The intended-hostel migration was applied and verified. The full deployed schema and RLS matrix are still **not independently audited or exhaustively tested**. The separate [`proposed_2026-10-18_security_hardening.sql`](hostel-management/supabase/archive/proposed_2026-10-18_security_hardening.sql) proposal remains distinct; do not assume it was applied.
 
 ### Proposed security hardening migration
 
-The review-only file [`proposed_2026-10-18_security_hardening.sql`](hostel-management/supabase/proposed_2026-10-18_security_hardening.sql) assumes the seven base tables and the original helper-function signatures already exist. It begins a transaction, checks table/function preconditions, inventories policies, aborts on unexpected policy names, creates private policy helpers, revokes direct execution from old public helpers, replaces all 27 known policies, recreates relevant triggers, and commits only the DDL changes if manually executed. It does not create/drop application tables, delete rows, update existing rows, seed hostels, repair occupancy, reset data, or change auth users.
+The review-only file [`proposed_2026-10-18_security_hardening.sql`](hostel-management/supabase/archive/proposed_2026-10-18_security_hardening.sql) assumes the seven base tables and the original helper-function signatures already exist. It begins a transaction, checks table/function preconditions, inventories policies, aborts on unexpected policy names, creates private policy helpers, revokes direct execution from old public helpers, replaces all 27 known policies, recreates relevant triggers, and commits only the DDL changes if manually executed. It does not create/drop application tables, delete rows, update existing rows, seed hostels, repair occupancy, reset data, or change auth users.
 
 It proposes these changes:
 
@@ -255,7 +513,7 @@ Services generally return `{ data, error }`-style results. Several still use in-
 | [`src/services/leaveService.ts`](hostel-management/src/services/leaveService.ts) | `getLeaveRequests`, `getLeaveRequestById`, `createLeaveRequest`, `updateLeaveStatus` | `leave_requests`, joined students/rooms | Student/warden/admin leave pages | Orphaned; local mocks otherwise |
 | [`src/services/noticesService.ts`](hostel-management/src/services/noticesService.ts) | `getNotices`, `createNotice`, `deleteNotice` | `notices`, joined profiles | All notice pages | Orphaned; local mocks otherwise |
 
-There is no fee service. [`src/types/index.ts`](hostel-management/src/types/index.ts) contains a `Fee` type, but no fee table appears in the SQL schema. The service layer therefore cannot make fees persistent.
+There is no fee service, table, page, route or type: fee management is out of scope for this release (placeholder pages, routes and the unused `Fee` type were removed on 2026-10-21).
 
 Specific service risks to address during implementation:
 
@@ -299,24 +557,24 @@ Do not restart the UI. Work in vertical slices and keep each checkbox unchecked 
 
 ### Day 1: Foundation and database readiness
 
-- [ ] **P0 | Status: Pending | Dependencies: project credentials and approval to inspect live state | Files:** [`src/lib/supabase.ts`](hostel-management/src/lib/supabase.ts), [`src/context/AuthContext.tsx`](hostel-management/src/context/AuthContext.tsx), [`supabase/schema.sql`](hostel-management/supabase/schema.sql) | **Acceptance:** configured browser uses only the publishable/anon key; at least one admin, warden, and student test account has a matching profile; schema/policies/triggers are reconciled with the local SQL; missing profile/role fails closed. **Verification:** controlled login/session/RLS checks; record live result here without secrets.
+- [ ] **P0 | Status: Pending | Dependencies: project credentials and approval to inspect live state | Files:** [`src/lib/supabase.ts`](hostel-management/src/lib/supabase.ts), [`src/context/AuthContext.tsx`](hostel-management/src/context/AuthContext.tsx), [`supabase/archive/schema.sql`](hostel-management/supabase/archive/schema.sql) | **Acceptance:** configured browser uses only the publishable/anon key; at least one admin, warden, and student test account has a matching profile; schema/policies/triggers are reconciled with the local SQL; missing profile/role fails closed. **Verification:** controlled login/session/RLS checks; record live result here without secrets.
 - [ ] **P0 | Status: Partial | Dependencies: first task | Files:** [`src/services/`](hostel-management/src/services/), role pages | **Acceptance:** each MVP page loads through its existing service; errors and loading states are visible; no page relies on hardcoded operational records. **Verification:** inspect caller graph and reload with configured Supabase.
 - [ ] **P1 | Status: Pending | Dependencies: environment setup | Files:** [`src/services/studentsService.ts`](hostel-management/src/services/studentsService.ts), [`src/services/noticesService.ts`](hostel-management/src/services/noticesService.ts) | **Acceptance:** IDs/search are validated and no incorrect mock student fallback remains. **Verification:** unit/manual edge cases with malformed search and unknown user.
-- [ ] **P1 | Status: Pending | Dependencies: schema policy review | Files:** [`supabase/schema.sql`](hostel-management/supabase/schema.sql) | **Acceptance:** role creation, notice authorship, and assigned-warden scope are explicitly secure and tested. **Verification:** unauthorized SQL/API attempts with separate accounts.
+- [ ] **P1 | Status: Pending | Dependencies: schema policy review | Files:** [`supabase/archive/schema.sql`](hostel-management/supabase/archive/schema.sql) | **Acceptance:** role creation, notice authorship, and assigned-warden scope are explicitly secure and tested. **Verification:** unauthorized SQL/API attempts with separate accounts.
 
 ### Day 2: Administration
 
 - [x] **P0 | Status: Verified by owner | Dependencies: Day 1 database readiness | Files:** [`src/pages/admin/Hostels.tsx`](hostel-management/src/pages/admin/Hostels.tsx), [`src/services/hostelsService.ts`](hostel-management/src/services/hostelsService.ts) | **Acceptance:** admin creates/list-refreshes a hostel with validation and errors. **Verification:** owner created `hostel A`, confirmed its row in Supabase, refreshed, and confirmed it appears.
 - [ ] **P0 | Status: Partial | Dependencies: hostel CRUD | Files:** [`src/pages/admin/Rooms.tsx`](hostel-management/src/pages/admin/Rooms.tsx), [`src/services/roomsService.ts`](hostel-management/src/services/roomsService.ts) | **Acceptance:** admin creates and updates a room; duplicate room number per hostel and invalid capacity are rejected. **Verification:** UI/API operation and refresh.
 - [ ] **P0 | Status: Partial | Dependencies: hostel/room data | Files:** [`src/pages/admin/Students.tsx`](hostel-management/src/pages/admin/Students.tsx), [`src/services/studentsService.ts`](hostel-management/src/services/studentsService.ts) | **Acceptance:** admin registers a student with valid identity fields and can reload the record. **Verification:** create, query, refresh.
-- [ ] **P0 | Status: Partial | Dependencies: rooms and students | Files:** [`src/pages/admin/Allocations.tsx`](hostel-management/src/pages/admin/Allocations.tsx), [`src/services/studentsService.ts`](hostel-management/src/services/studentsService.ts), [`supabase/schema.sql`](hostel-management/supabase/schema.sql) | **Acceptance:** allocation/transfer updates student and room occupancy; full room is rejected; hostel mismatch cannot be persisted. **Verification:** allocate to available room, fill room, attempt one extra, reload counts.
+- [ ] **P0 | Status: Partial | Dependencies: rooms and students | Files:** [`src/pages/admin/Allocations.tsx`](hostel-management/src/pages/admin/Allocations.tsx), [`src/services/studentsService.ts`](hostel-management/src/services/studentsService.ts), [`supabase/archive/schema.sql`](hostel-management/supabase/archive/schema.sql) | **Acceptance:** allocation/transfer updates student and room occupancy; full room is rejected; hostel mismatch cannot be persisted. **Verification:** allocate to available room, fill room, attempt one extra, reload counts.
 
 ### Day 3: Workflows
 
 - [ ] **P0 | Status: Partial | Dependencies: student records and auth | Files:** student/warden/admin complaint pages and [`complaintsService.ts`](hostel-management/src/services/complaintsService.ts) | **Acceptance:** student submits a complaint; student sees only own records; warden/admin changes status; status survives refresh. **Verification:** two-account ownership and status test.
 - [ ] **P0 | Status: Partial | Dependencies: student records and auth | Files:** student/warden/admin leave pages and [`leaveService.ts`](hostel-management/src/services/leaveService.ts) | **Acceptance:** student submits valid date range; warden approves/rejects with optional remark; student sees result after relogin/refresh. **Verification:** invalid date, approval, rejection, ownership test.
 - [ ] **P1 | Status: Partial | Dependencies: profile/hostel data and auth | Files:** notice pages and [`noticesService.ts`](hostel-management/src/services/noticesService.ts) | **Acceptance:** authorized admin/warden publishes; students see applicable notices; unauthorized author/delete attempts fail. **Verification:** publish, visibility, delete/RLS test.
-- [ ] **P1 | Status: Pending | Dependencies: fee scope decision | Files:** [`src/pages/*/Fees.tsx`](hostel-management/src/pages/), [`src/types/index.ts`](hostel-management/src/types/index.ts) | **Acceptance:** fees are clearly labeled non-persistent/secondary, or an approved fee schema is implemented separately. No payment integration without approval. **Verification:** review scope with project owner.
+- [x] **P1 | Status: Decided — out of scope for this release (2026-10-21)** | Fee management is excluded: no fee schema, service, routes or pages exist, and the placeholder `/admin/fees` and `/student/fees` routes, pages and unused `Fee`/`FeeStatus` types were removed. No payment integration.
 
 ### Day 4: Integration and demonstration
 
@@ -355,7 +613,7 @@ Do not restart the UI. Work in vertical slices and keep each checkbox unchecked 
 
 - [ ] Connect remaining pages to the existing service layer.
 - [ ] Continue reconciling the local baseline SQL with the deployed Supabase schema/policies; do not assume equivalence.
-- [ ] Review and approve [`proposed_2026-10-18_security_hardening.sql`](hostel-management/supabase/proposed_2026-10-18_security_hardening.sql) before any SQL Editor execution.
+- [ ] Review and approve [`proposed_2026-10-18_security_hardening.sql`](hostel-management/supabase/archive/proposed_2026-10-18_security_hardening.sql) before any SQL Editor execution.
 - [ ] Confirm `private` is not in the Supabase PostgREST exposed-schema list before applying the proposal.
 - [ ] Verify only admins can manage hostel metadata and publish/manage global notices.
 - [ ] Decide and secure the final demo authentication path.
@@ -421,6 +679,7 @@ Run commands from `hostel-management/`:
 ```powershell
 Push-Location hostel-management
 npm install                 # only when dependencies are intentionally installed; not run by this audit
+npm test                    # added 2026-10-21: offline DB (PGlite) + UI checks
 npm run lint
 npm run build
 npm run dev
@@ -445,7 +704,7 @@ Original audit results (historical; later owner verification is summarized below
 | Notice visibility | Not run | UI/service caller missing; verify global/hostel filtering and author policy. |
 | Persistence after refresh | Not run | Current pages use local constants; run only after wiring services. |
 | RLS/unauthorized access | Not run | Requires controlled accounts and direct API attempts; never disable RLS to make a test pass. |
-| Proposed SQL syntax/application | Not run | [`proposed_2026-10-18_security_hardening.sql`](hostel-management/supabase/proposed_2026-10-18_security_hardening.sql) is review-only and was not sent to Supabase; validate in a disposable/staging database or approved SQL Editor session. |
+| Proposed SQL syntax/application | Not run | [`proposed_2026-10-18_security_hardening.sql`](hostel-management/supabase/archive/proposed_2026-10-18_security_hardening.sql) is review-only and was not sent to Supabase; validate in a disposable/staging database or approved SQL Editor session. |
 | Function privileges/RPC exposure | Not run | Review `private` schema exposure and verify authenticated RLS evaluation works while anon/direct RPC execution is denied. |
 | Concurrent allocation/unallocation | Not run | Requires two concurrent authenticated transactions plus room transfer-to-NULL tests; no live writes were attempted. |
 
@@ -465,7 +724,7 @@ Latest verification status (2026-10-18; live results reported by the project own
 | `npm run build` | Passed with warning | Vite reported a minified bundle chunk larger than 500 kB. |
 | `git diff --check` | Passed | Latest reported check passed; line-ending notices are not whitespace errors. |
 
-No test runner is configured. Until one is added, maintain a repeatable manual matrix with test account, route, operation, expected result, actual result, and timestamp. Do not mark a row passed from compilation alone.
+*(2026-10-18 statement:)* No test runner is configured. **Corrected 2026-10-21:** `npm test` (= `test:db` + `test:ui`) runs 166 offline checks (rls 59, seed 56, ui 51 at the last run); `npm run test:live-dev` is a guarded dev-only live probe. Browser workflows still need manual testing: maintain a repeatable manual matrix with test account, route, operation, expected result, actual result, and timestamp. Do not mark a row passed from compilation alone.
 
 ## L. Security and Operational Rules
 
@@ -486,6 +745,8 @@ These rules are non-negotiable for all future sessions:
 - Ask before destructive operations, dependency changes, significant architecture changes, or live database changes.
 
 ## M. Session Log
+
+> **Path note (2026-10-21):** links to `supabase/schema.sql` and `supabase/proposed_2026-10-18_security_hardening.sql` in this log now point to their archived copies under `supabase/archive/` (byte-identical to the originals). Entry text and dates are unchanged.
 
 ### 2026-10-18: Full repository audit and handoff creation
 
@@ -542,7 +803,7 @@ These rules are non-negotiable for all future sessions:
 **Inspected:**
 
 - Read this handoff completely before acting.
-- Rechecked [`src/lib/supabase.ts`](hostel-management/src/lib/supabase.ts), [`hostel-management/.env.example`](hostel-management/.env.example), root/application ignore rules, and the complete local [`schema.sql`](hostel-management/supabase/schema.sql).
+- Rechecked [`src/lib/supabase.ts`](hostel-management/src/lib/supabase.ts), [`hostel-management/.env.example`](hostel-management/.env.example), root/application ignore rules, and the complete local [`schema.sql`](hostel-management/supabase/archive/schema.sql).
 
 **Files changed:**
 
@@ -581,13 +842,13 @@ These rules are non-negotiable for all future sessions:
 
 **Inspected:**
 
-- Re-read this handoff and the complete [`hostel-management/supabase/schema.sql`](hostel-management/supabase/schema.sql).
+- Re-read this handoff and the complete [`hostel-management/supabase/archive/schema.sql`](hostel-management/supabase/archive/schema.sql).
 - Rechecked service callers and the current application implementation. Pages remain disconnected from the service layer; no CRUD workflow implementation was started.
 - Reviewed every base table, relationship, constraint, trigger, helper function, RLS policy, and seed statement in the local SQL.
 
 **File created:**
 
-- [`hostel-management/supabase/proposed_2026-10-18_security_hardening.sql`](hostel-management/supabase/proposed_2026-10-18_security_hardening.sql), a separate review-only migration proposal.
+- [`hostel-management/supabase/archive/proposed_2026-10-18_security_hardening.sql`](hostel-management/supabase/archive/proposed_2026-10-18_security_hardening.sql), a separate review-only migration proposal.
 
 **What the proposal changes:**
 
@@ -623,7 +884,7 @@ These rules are non-negotiable for all future sessions:
 
 **Updated file:**
 
-- Revised [`proposed_2026-10-18_security_hardening.sql`](hostel-management/supabase/proposed_2026-10-18_security_hardening.sql). `schema.sql` and application code were not changed.
+- Revised [`proposed_2026-10-18_security_hardening.sql`](hostel-management/supabase/archive/proposed_2026-10-18_security_hardening.sql). `schema.sql` and application code were not changed.
 
 **Revision results:**
 
@@ -652,7 +913,7 @@ These rules are non-negotiable for all future sessions:
 
 ### 2026-10-18: Final security and correctness review
 
-**Updated:** [`proposed_2026-10-18_security_hardening.sql`](hostel-management/supabase/proposed_2026-10-18_security_hardening.sql) remains separate from [`schema.sql`](hostel-management/supabase/schema.sql) and unapplied.
+**Updated:** [`proposed_2026-10-18_security_hardening.sql`](hostel-management/supabase/archive/proposed_2026-10-18_security_hardening.sql) remains separate from [`schema.sql`](hostel-management/supabase/archive/schema.sql) and unapplied.
 
 **Resolutions:**
 
@@ -675,7 +936,7 @@ These rules are non-negotiable for all future sessions:
 
 ### 2026-10-18: Focused migration correction
 
-**Updated:** [`proposed_2026-10-18_security_hardening.sql`](hostel-management/supabase/proposed_2026-10-18_security_hardening.sql). The migration remains unapplied; no application code, base schema, live database, or Git history was changed.
+**Updated:** [`proposed_2026-10-18_security_hardening.sql`](hostel-management/supabase/archive/proposed_2026-10-18_security_hardening.sql). The migration remains unapplied; no application code, base schema, live database, or Git history was changed.
 
 **Exact corrections:**
 
@@ -749,6 +1010,16 @@ These rules are non-negotiable for all future sessions:
 > Sign in as admin; create an identifiable student under intended hostel `hostel A` without a room; refresh Admin → Students and verify it persists; sign in as `warden 1`, verify Warden Dashboard routing, then check Warden → Students → Pending Allocation. Fix only observed errors. Room allocation, capacity enforcement through the UI, complaints, leave, notices, fees, and complete RLS/role testing remain subsequent work.
 
 No live operation or SQL was performed by the assistant while updating this handoff.
+
+### 2026-10-20: Audit, linking security fix, workflow completion
+
+- Audited repo against handoff; found 2026-10-19 work committed in `0d274b2` but undocumented.
+- Added `npm run test:db` (PGlite devDependency `@electric-sql/pglite@0.3.15`, [supabase/tests/](hostel-management/supabase/tests/)): first real-Postgres execution of the baseline and migrations.
+- Proved 20261019140000 cannot apply on the deployed baseline; proved the profile-email hijack precondition on the current schema.
+- Wrote/tested migration 20261020120000 + rollback; removed client-side linking; added recovery/resend; wired Profile, Room, Leave, Notices, Allocations, room edit; Fees out of scope.
+- No live SQL was run and no live data was touched. Details and pending owner actions: "Latest status — 2026-10-20" at the top.
+- Later 2026-10-20: migration link triggers made fail-safe (never block sign-up); production build guard against demo mode; deployment paused by owner.
+- Dev-data phase: owner chose a separate dev project. Added seed tooling + 43 seed tests; admin hostel edit/delete, admin complaint actions, student leave silent-failure fix, dev project-ref indicator on Login. Checks: test:db 51+43 passed, tsc pass, lint 5 pre-existing warnings, build pass, all 9 client routes serve from the production build. No browser automation available in this environment; browser E2E pending owner's dev project.
 
 ## N. Instructions for the Next AI Assistant
 

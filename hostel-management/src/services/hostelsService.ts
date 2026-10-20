@@ -68,6 +68,47 @@ export async function createHostel(
   }
 }
 
+export async function updateHostel(
+  id: string,
+  payload: Partial<Pick<Hostel, 'name' | 'type' | 'warden_id' | 'address'>>
+): Promise<{ data: Hostel | null; error: string | null }> {
+  if (!isSupabaseConfigured) return { data: null, error: configurationError };
+
+  try {
+    const { data, error } = await supabase.from('hostels').update(payload).eq('id', id).select().maybeSingle();
+    if (error) return { data: null, error: error.message };
+    if (!data) return { data: null, error: 'Hostel was not updated. It may be missing or the database denied access.' };
+    return { data: data as Hostel, error: null };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Failed to update hostel';
+    return { data: null, error: message };
+  }
+}
+
+// Deleting a hostel cascades to its rooms and hostel notices and clears students'
+// intended hostel, so only empty hostels (no rooms, no students) may be deleted.
+export async function deleteHostel(id: string): Promise<{ error: string | null }> {
+  if (!isSupabaseConfigured) return { error: configurationError };
+
+  try {
+    const [rooms, students] = await Promise.all([
+      supabase.from('rooms').select('id', { count: 'exact', head: true }).eq('hostel_id', id),
+      supabase.from('students').select('id', { count: 'exact', head: true }).or(`hostel_id.eq.${id},intended_hostel_id.eq.${id}`),
+    ]);
+    if (rooms.error || students.error) return { error: (rooms.error || students.error)?.message || 'Could not verify that the hostel is empty.' };
+    if ((rooms.count || 0) > 0 || (students.count || 0) > 0) {
+      return { error: `This hostel still has ${rooms.count || 0} room(s) and ${students.count || 0} student record(s). Move or remove them before deleting the hostel.` };
+    }
+
+    const { data, error } = await supabase.from('hostels').delete().eq('id', id).select('id');
+    if (error) return { error: error.message };
+    if (!data?.length) return { error: 'Hostel was not deleted. It may be missing or the database denied access.' };
+    return { error: null };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Failed to delete hostel' };
+  }
+}
+
 export async function getHostelWardens(): Promise<{ data: HostelWarden[] | null; error: string | null }> {
   if (!isSupabaseConfigured) return { data: null, error: configurationError };
 

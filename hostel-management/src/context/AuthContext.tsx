@@ -13,6 +13,10 @@ const DEMO_PROFILES: Record<string, { full_name: string; role: UserRole }> = {
 
 const LOCAL_STORAGE_KEY = 'hostelhub_demo_session';
 
+// Email links must return to this app. Each URL must also be listed in
+// Supabase Dashboard > Authentication > URL Configuration > Redirect URLs.
+const authRedirectUrl = (path: string) => `${window.location.origin}${path}`;
+
 const isUserRole = (value: unknown): value is UserRole =>
   value === 'student' || value === 'warden' || value === 'admin';
 
@@ -36,6 +40,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<SupabaseUser | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isPasswordRecovery, setIsPasswordRecovery] = useState(false);
 
   // Helper to fetch user's profile from live Supabase public.profiles table
   const fetchSupabaseProfile = async (userId: string): Promise<Profile | null> => {
@@ -112,8 +117,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     let authListener: { subscription: { unsubscribe: () => void } } | null = null;
     if (isSupabaseConfigured) {
       const { data } = supabase.auth.onAuthStateChange(
-        async (_event: string, session: Session | null) => {
+        async (event: string, session: Session | null) => {
           if (!isMounted) return;
+          if (event === 'PASSWORD_RECOVERY') setIsPasswordRecovery(true);
 
           if (session?.user) {
             const userProfile = await fetchSupabaseProfile(session.user.id);
@@ -257,6 +263,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         password,
         options: {
           data: { full_name: cleanFullName, student_id: cleanStudentId },
+          emailRedirectTo: authRedirectUrl('/login'),
         },
       });
 
@@ -317,6 +324,49 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const notConfiguredError = () => ({ error: new Error('This action requires the live Supabase connection.') });
+  const toError = (err: unknown, fallback: string) => new Error(err instanceof Error ? err.message : fallback);
+
+  // Supabase does not reveal whether the email exists; callers should show a neutral message.
+  const requestPasswordReset = async (email: string): Promise<{ error: Error | null }> => {
+    if (!isSupabaseConfigured) return notConfiguredError();
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email.trim().toLowerCase(), {
+        redirectTo: authRedirectUrl('/reset-password'),
+      });
+      return { error: error ? new Error(error.message) : null };
+    } catch (err) {
+      return { error: toError(err, 'Could not request a password reset.') };
+    }
+  };
+
+  const resendConfirmation = async (email: string): Promise<{ error: Error | null }> => {
+    if (!isSupabaseConfigured) return notConfiguredError();
+    try {
+      const { error } = await supabase.auth.resend({
+        type: 'signup',
+        email: email.trim().toLowerCase(),
+        options: { emailRedirectTo: authRedirectUrl('/login') },
+      });
+      return { error: error ? new Error(error.message) : null };
+    } catch (err) {
+      return { error: toError(err, 'Could not resend the confirmation email.') };
+    }
+  };
+
+  // Requires the session established by the recovery link (or a normal signed-in session).
+  const updatePassword = async (password: string): Promise<{ error: Error | null }> => {
+    if (!isSupabaseConfigured) return notConfiguredError();
+    try {
+      const { error } = await supabase.auth.updateUser({ password });
+      if (error) return { error: new Error(error.message) };
+      setIsPasswordRecovery(false);
+      return { error: null };
+    } catch (err) {
+      return { error: toError(err, 'Could not update the password.') };
+    }
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -327,6 +377,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         signIn,
         signUp,
         signOut,
+        requestPasswordReset,
+        resendConfirmation,
+        updatePassword,
+        isPasswordRecovery,
         isConfigured: isSupabaseConfigured,
         isDemoMode: !isSupabaseConfigured,
       }}

@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Search } from 'lucide-react';
 import { PageHeader } from '../../components/layout';
-import { Badge, Card, Input } from '../../components/ui';
+import { Badge, Button, Card, Input } from '../../components/ui';
 import { useAuth } from '../../context';
-import { getComplaints } from '../../services';
+import { getComplaints, updateComplaintStatus } from '../../services';
 import type { Complaint, ComplaintStatus } from '../../types';
 
 function statusLabel(status: ComplaintStatus): string {
@@ -17,6 +17,27 @@ export default function AdminComplaints() {
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+  const [savingId, setSavingId] = useState<string | null>(null);
+
+  const changeStatus = async (complaint: Complaint, status: ComplaintStatus) => {
+    if (savingId) return;
+    setSavingId(complaint.id);
+    setActionError(null);
+    setSuccess(null);
+    const result = await updateComplaintStatus(complaint.id, status);
+    if (result.error || result.data?.status !== status) {
+      setSavingId(null);
+      setActionError(result.error || 'The database did not confirm the complaint status update.');
+      return;
+    }
+    // Reload so the list reflects persisted state (including joined student/room data).
+    const refreshed = await getComplaints();
+    setSavingId(null);
+    if (refreshed.data) setComplaints(refreshed.data);
+    setSuccess(`Complaint “${complaint.title}” marked ${statusLabel(status).toLowerCase()}.`);
+  };
 
   useEffect(() => {
     let active = true;
@@ -66,8 +87,10 @@ export default function AdminComplaints() {
 
   return (
     <div>
-      <PageHeader title="All Complaints" description="View complaints across hostels visible to your admin account." />
+      <PageHeader title="All Complaints" description="Review and update complaints across all hostels." />
       <div className="mb-6"><Input placeholder="Search complaints..." leftIcon={<Search className="h-4 w-4" />} value={search} onChange={(event) => setSearch(event.target.value)} /></div>
+      {actionError && <p role="alert" className="mb-4 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{actionError}</p>}
+      {success && <p role="status" className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">{success}</p>}
       {error && <p role="alert" className="mb-4 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{error}</p>}
 
       {loading ? <Card><p role="status" className="text-sm text-gray-500">Loading complaints...</p></Card> : error ? null : visibleComplaints.length === 0 ? (
@@ -86,7 +109,11 @@ export default function AdminComplaints() {
                     <p className="text-sm text-gray-500">{complaint.category} · {complaint.student?.name || 'Student details unavailable'}{complaint.student?.student_id ? ` (${complaint.student.student_id})` : ''}{hostelName ? ` · ${hostelName}` : ''}{roomNumber ? ` · Room ${roomNumber}` : ''} · {new Date(complaint.created_at).toLocaleString()}</p>
                     <p className="mt-3 whitespace-pre-wrap text-sm text-gray-700">{complaint.description}</p>
                   </div>
-                  <Badge variant={badgeVariant} dot>{statusLabel(complaint.status)}</Badge>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <Badge variant={badgeVariant} dot>{statusLabel(complaint.status)}</Badge>
+                    {complaint.status === 'pending' && <Button size="sm" variant="outline" isLoading={savingId === complaint.id} disabled={Boolean(savingId)} onClick={() => void changeStatus(complaint, 'in_progress')}>Start</Button>}
+                    {complaint.status === 'in_progress' && <Button size="sm" isLoading={savingId === complaint.id} disabled={Boolean(savingId)} onClick={() => void changeStatus(complaint, 'resolved')}>Resolve</Button>}
+                  </div>
                 </div>
               </Card>
             );

@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
-import { Plus, Search } from 'lucide-react';
+import { Pencil, Plus, Search } from 'lucide-react';
 import { PageHeader } from '../../components/layout';
 import { Badge, Button, Card, Input, Modal, Select } from '../../components/ui';
 import { useAuth } from '../../context';
-import { createRoom, getHostels, getRooms } from '../../services';
+import { createRoom, getHostels, getRooms, updateRoom } from '../../services';
 import type { Hostel, Room } from '../../types';
 
 type RoomDraft = {
@@ -41,6 +41,47 @@ export default function AdminRooms() {
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [editingRoom, setEditingRoom] = useState<Room | null>(null);
+  const [editDraft, setEditDraft] = useState({ floor: '1', capacity: '1', maintenance: 'no' });
+  const [editError, setEditError] = useState<string | null>(null);
+
+  const openEdit = (room: Room) => {
+    setEditingRoom(room);
+    setEditDraft({ floor: String(room.floor), capacity: String(room.capacity), maintenance: room.status === 'maintenance' ? 'yes' : 'no' });
+    setEditError(null);
+    setSuccessMessage(null);
+  };
+
+  // The database recomputes occupancy/full status and rejects capacity below current occupancy.
+  const handleEdit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!editingRoom) return;
+    const floor = Number(editDraft.floor);
+    const capacity = Number(editDraft.capacity);
+    if (!Number.isInteger(floor) || floor < 1) {
+      setEditError('Floor must be a positive whole number.');
+      return;
+    }
+    if (!Number.isInteger(capacity) || capacity < 1) {
+      setEditError('Capacity must be a positive whole number.');
+      return;
+    }
+    if (capacity < editingRoom.current_occupants) {
+      setEditError(`Capacity cannot be lower than the ${editingRoom.current_occupants} current occupant(s). Move students first.`);
+      return;
+    }
+    setSaving(true);
+    const result = await updateRoom(editingRoom.id, { floor, capacity, status: editDraft.maintenance === 'yes' ? 'maintenance' : 'available' });
+    setSaving(false);
+    if (result.error || !result.data?.id) {
+      setEditError(`Could not update room. ${result.error || 'The database did not confirm the update.'}`);
+      return;
+    }
+    setEditingRoom(null);
+    setSuccessMessage(`Room ${result.data.room_number} updated.`);
+    setRoomsLoading(true);
+    setRefreshKey((current) => current + 1);
+  };
 
   useEffect(() => {
     let active = true;
@@ -155,10 +196,32 @@ export default function AdminRooms() {
                 <div className="flex justify-between"><span className="text-gray-500">Occupancy</span><span className="font-medium">{room.current_occupants}/{room.capacity}</span></div>
               </div>
               <div className="mt-3 bg-gray-100 rounded-full h-2"><div className="bg-primary-600 h-2 rounded-full" style={{ width: `${Math.min((room.current_occupants / room.capacity) * 100, 100)}%` }} /></div>
+              <Button className="mt-4 w-full" size="sm" variant="outline" leftIcon={<Pencil className="h-4 w-4" />} onClick={() => openEdit(room)} disabled={!isConfigured}>Edit Room</Button>
             </Card>;
           })}
         </div>
       )}
+
+      <Modal
+        isOpen={Boolean(editingRoom)}
+        onClose={() => { if (!saving) setEditingRoom(null); }}
+        title={`Edit Room ${editingRoom?.room_number || ''}`}
+        footer={<>
+          <Button variant="outline" onClick={() => setEditingRoom(null)} disabled={saving}>Cancel</Button>
+          <Button type="submit" form="room-edit-form" isLoading={saving}>Save Changes</Button>
+        </>}
+      >
+        <form id="room-edit-form" onSubmit={(event) => void handleEdit(event)} className="space-y-4">
+          <div className="grid sm:grid-cols-2 gap-4">
+            <Input label="Floor" type="number" min="1" step="1" value={editDraft.floor} onChange={(event) => setEditDraft((current) => ({ ...current, floor: event.target.value }))} required disabled={saving} />
+            <Input label="Capacity" type="number" min="1" step="1" value={editDraft.capacity} onChange={(event) => setEditDraft((current) => ({ ...current, capacity: event.target.value }))} required disabled={saving} />
+          </div>
+          <Select label="Under maintenance" value={editDraft.maintenance} onChange={(event) => setEditDraft((current) => ({ ...current, maintenance: event.target.value }))} disabled={saving}
+            options={[{ value: 'no', label: 'No — available for allocation' }, { value: 'yes', label: 'Yes — block new allocations' }]} />
+          <p className="text-xs text-gray-500">Occupancy is counted from allocated students; full/available status is set automatically.</p>
+          {editError && <p role="alert" className="text-sm text-rose-700">{editError}</p>}
+        </form>
+      </Modal>
 
       <Modal
         isOpen={isOpen}

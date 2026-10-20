@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
-import { GraduationCap, Shield, Users, ArrowRight, AlertCircle } from 'lucide-react';
+import { GraduationCap, Shield, Users, ArrowRight, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { AuthLayout } from '../components/layout';
 import { Button, Input } from '../components/ui';
 import { useAuth } from '../context';
+import { supabaseProjectRef } from '../lib/supabase';
 
 interface DemoRole {
   role: 'student' | 'warden' | 'admin';
@@ -16,13 +17,31 @@ interface DemoRole {
 export default function Login() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { signIn, loading: authLoading, isConfigured } = useAuth();
+  const { signIn, resendConfirmation, loading: authLoading, isConfigured } = useAuth();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [selectedRole, setSelectedRole] = useState<'student' | 'warden' | 'admin' | null>(null);
+  const [needsConfirmation, setNeedsConfirmation] = useState(false);
+  const [noticeMessage, setNoticeMessage] = useState<string | null>(
+    (location.state as { notice?: string } | null)?.notice || null
+  );
+  const [isResending, setIsResending] = useState(false);
+
+  const handleResend = async () => {
+    setIsResending(true);
+    const { error } = await resendConfirmation(email);
+    setIsResending(false);
+    if (error) {
+      setErrorMessage(error.message);
+      return;
+    }
+    setErrorMessage(null);
+    setNeedsConfirmation(false);
+    setNoticeMessage('If this account is awaiting confirmation, a new confirmation email has been sent. Open the link, then sign in.');
+  };
 
   // Retrieve default demo credentials from environment or sensible project defaults
   const demoPassword = import.meta.env.VITE_DEMO_PASSWORD || 'demo123';
@@ -64,11 +83,14 @@ export default function Login() {
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
+    setNoticeMessage(null);
+    setNeedsConfirmation(false);
     setIsSubmitting(true);
 
     const { error, role } = await signIn(email, password);
 
     if (error) {
+      setNeedsConfirmation(/email not confirmed/i.test(error.message));
       setErrorMessage(
         error.message.includes('Invalid login credentials')
           ? 'Incorrect email or password. Please verify your credentials.'
@@ -125,6 +147,7 @@ export default function Login() {
               <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
                 Live Supabase Connected
+                {import.meta.env.DEV && supabaseProjectRef && <span className="font-mono">· {supabaseProjectRef}</span>}
               </span>
             ) : (
               <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-amber-50 text-amber-700 border border-amber-200" title="Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to .env to connect live backend">
@@ -192,6 +215,23 @@ export default function Login() {
           </div>
         )}
 
+        {needsConfirmation && (
+          <div className="mb-4 -mt-2 text-xs text-gray-600">
+            Didn&apos;t get the email?{' '}
+            <button type="button" onClick={() => void handleResend()} disabled={isResending || !email.trim()}
+              className="font-medium text-primary-600 hover:text-primary-700 disabled:opacity-50">
+              {isResending ? 'Sending...' : 'Resend confirmation email'}
+            </button>
+          </div>
+        )}
+
+        {noticeMessage && (
+          <div role="status" className="mb-4 p-3 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs flex items-start gap-2">
+            <CheckCircle2 className="h-4 w-4 flex-shrink-0 mt-0.5" />
+            <span>{noticeMessage}</span>
+          </div>
+        )}
+
         {/* Login Form */}
         <form onSubmit={handleLogin} className="space-y-4">
           <Input
@@ -206,9 +246,9 @@ export default function Login() {
           <div>
             <div className="flex items-center justify-between mb-1">
               <label className="text-xs font-medium text-gray-700">Password</label>
-              <span className="text-xs text-primary-600 hover:underline cursor-pointer">
+              <Link to="/forgot-password" className="text-xs text-primary-600 hover:underline">
                 Forgot password?
-              </span>
+              </Link>
             </div>
             <Input
               type="password"

@@ -69,13 +69,14 @@ export default function Header({ role, userName, onMenuClick }: HeaderProps) {
 
         {/* Right section */}
         <div className="flex items-center gap-2 sm:gap-3">
-          {/* Notifications */}
+          {/* Notices shortcut (no separate notification store exists) */}
           <button
+            onClick={() => navigate(`/${role}/notices`)}
             className="relative p-2 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors cursor-pointer"
-            aria-label="View notifications"
+            aria-label="View notices"
+            title="View notices"
           >
             <Bell className="h-4.5 w-4.5" />
-            <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-primary-600 rounded-full ring-2 ring-white" />
           </button>
 
           <div className="h-4 w-px bg-gray-200 mx-1 hidden sm:block" />

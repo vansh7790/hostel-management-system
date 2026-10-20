@@ -7,7 +7,7 @@ import { useAuth } from '../context';
 
 export default function Register() {
   const navigate = useNavigate();
-  const { signUp, loading: authLoading, isConfigured } = useAuth();
+  const { signUp, resendConfirmation, loading: authLoading, isConfigured } = useAuth();
   const [fullName, setFullName] = useState('');
   const [studentId, setStudentId] = useState('');
   const [email, setEmail] = useState('');
@@ -16,6 +16,14 @@ export default function Register() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [awaitingConfirmation, setAwaitingConfirmation] = useState(false);
+  const [resendStatus, setResendStatus] = useState<string | null>(null);
+
+  const handleResend = async () => {
+    setResendStatus('Sending...');
+    const { error } = await resendConfirmation(email);
+    setResendStatus(error ? `Could not resend: ${error.message}` : 'A new confirmation email has been sent if the account is still unconfirmed.');
+  };
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -61,6 +69,7 @@ export default function Register() {
     }
 
     if (result.needsEmailConfirmation) {
+      setAwaitingConfirmation(true);
       setSuccessMessage('Account created. Confirm your email, then sign in. Your student ID and verified email must match the student record. If your record was not pre-created or the details do not match, contact the hostel administrator to complete registration.');
       return;
     }
@@ -98,6 +107,16 @@ export default function Register() {
             <CheckCircle2 className="h-4 w-4 flex-shrink-0 mt-0.5" />
             <span>{successMessage}</span>
           </div>
+        )}
+
+        {awaitingConfirmation && (
+          <p className="mb-4 text-xs text-gray-600">
+            Didn&apos;t receive it?{' '}
+            <button type="button" onClick={() => void handleResend()} className="font-medium text-primary-600 hover:text-primary-700">
+              Resend confirmation email
+            </button>
+            {resendStatus && <span className="block mt-1">{resendStatus}</span>}
+          </p>
         )}
 
         <form onSubmit={handleSubmit} className="space-y-4">

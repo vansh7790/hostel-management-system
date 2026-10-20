@@ -5,7 +5,6 @@ import {
   BedDouble,
   MessageSquare,
   Calendar,
-  DollarSign,
   Bell,
   Building2,
   Users,
@@ -60,7 +59,6 @@ const getNavGroups = (role: UserRole): NavGroup[] => {
         {
           groupTitle: 'Hostel Info',
           items: [
-            { label: 'Fee Records', path: '/student/fees', icon: <DollarSign className="h-4 w-4" /> },
             { label: 'Notice Board', path: '/student/notices', icon: <Bell className="h-4 w-4" /> },
           ],
         },
@@ -116,7 +114,6 @@ const getNavGroups = (role: UserRole): NavGroup[] => {
           items: [
             { label: 'All Complaints', path: '/admin/complaints', icon: <MessageSquare className="h-4 w-4" /> },
             { label: 'Leave Requests', path: '/admin/leave', icon: <Calendar className="h-4 w-4" /> },
-            { label: 'Fee Management', path: '/admin/fees', icon: <DollarSign className="h-4 w-4" /> },
             { label: 'Announcements', path: '/admin/notices', icon: <ClipboardList className="h-4 w-4" /> },
           ],
         },

@@ -15,6 +15,10 @@ export interface AuthContextType {
     studentId: string
   ) => Promise<{ error: Error | null; needsEmailConfirmation: boolean; role?: UserRole }>;
   signOut: () => Promise<void>;
+  requestPasswordReset: (email: string) => Promise<{ error: Error | null }>;
+  resendConfirmation: (email: string) => Promise<{ error: Error | null }>;
+  updatePassword: (password: string) => Promise<{ error: Error | null }>;
+  isPasswordRecovery: boolean;
   isConfigured: boolean;
   isDemoMode: boolean;
 }
